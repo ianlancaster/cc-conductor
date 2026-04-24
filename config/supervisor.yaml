@@ -1,0 +1,35 @@
+supervisor:
+  heartbeatIntervalSeconds: 30
+  stallThresholdMinutes: 5
+  stallRestartAttempts: 1
+  defaultMaxTurns: 100
+  logLevel: debug
+  usageSessionThreshold: 80
+  usageWeeklyThreshold: 70
+
+localModel:
+  provider: ollama
+  model: qwen3:8b
+  endpoint: http://localhost:11434
+  idleTimeoutMinutes: 10
+  confidenceThreshold: 0.7
+
+telegram:
+  escalationExpiryHours: 24
+  escalationDefaultAction: deny
+
+database:
+  path: ./data/conductor.db
+
+claudeCode:
+  binary: claude
+  defaultModel: claude-opus-4-6
+
+transport:
+  default: desktop
+
+iterm:
+  windowName: Agent Conductor
+
+mcp:
+  port: 3456

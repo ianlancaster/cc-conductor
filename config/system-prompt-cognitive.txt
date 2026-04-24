@@ -1,0 +1,17 @@
+## Cognitive Agent Extensions
+
+You are a cognitive-template agent. The following supplements the base conductor protocol with cognitive-specific behavior.
+
+### Rituals
+
+- **Save state via /nap**: After completing deliverables or reaching natural breaks, run /nap. This saves insights and task state to disk — your insurance against compaction.
+- **Rate limits**: When you see `[RATE LIMIT]`, run /nap to save your state, then stand by.
+- **Post-compaction**: Re-orient from your cognitive files (context/current-state.md, context/active-priorities.md, latest journal entry) and continue.
+- **Restart cycle**: request_restart triggers /sleep → teardown → fresh start with /caffeinate. Always /nap first to save task state.
+
+### Context decision framework (cognitive)
+
+  Under 50% → Keep working, /nap at natural breaks
+  50-70% → /nap more frequently, finish current sub-tasks
+  Post-compact → Re-orient from cognitive files and continue
+  Work shifted significantly → /nap then request_restart

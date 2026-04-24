@@ -1,0 +1,44 @@
+# Example: cognitive-template agent
+# The agent's repo must contain a .cognitive-agent marker file.
+# Copy this file and rename to <codename>.yaml
+
+agent: my-agent
+codename: my-agent
+repo: /path/to/my-agent
+model: claude-opus-4-6
+maxTurns: 100
+
+# Scheduled rituals (cognitive agents typically have sleep + caffeinate)
+schedules:
+  - label: nightly-sleep
+    cron: "0 22 * * *"
+    prompt: >
+      Run /sleep for end-of-day consolidation.
+      If you are mid-task, run /nap instead and set paused: true
+      on your nightly-sleep schedule.
+    paused: false
+    freshSession: false
+  - label: morning-caffeinate
+    cron: "0 5 * * *"
+    prompt: "Run /caffeinate to load your cognitive state for the new day."
+    paused: false
+    freshSession: true    # stops old session, starts fresh
+
+additionalDirs:
+  - /path/to/water-cooler         # shared inter-agent space
+  # - /path/to/other-agent        # peer agent repos for cross-reference
+
+autoApprove:
+  tools: [Read, Edit, Write, Bash, Agent]
+  paths:
+    write: ["**"]
+    read: ["**"]
+  bash:
+    allow: ["git *", "npm *", "node *", "npx *", "python3 *"]
+    deny: ["rm -rf /*", "sudo *"]
+
+escalateAlways: []
+
+peerAccess:
+  canConsult: []          # codenames of agents this one can consult
+  canReceiveFrom: []      # codenames of agents that can send to this one
