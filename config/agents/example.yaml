@@ -1,0 +1,42 @@
+# Example: generic Claude Code instance
+# Copy this file and rename to <codename>.yaml
+
+agent: my-project
+codename: my-project
+repo: /path/to/my-project
+model: claude-sonnet-4-6
+maxTurns: 100
+
+# Optional: additional directories the agent can access
+# additionalDirs:
+#   - /path/to/shared-resources
+
+# Optional: scheduled tasks (5-field cron syntax)
+# schedules:
+#   - label: nightly-cleanup
+#     cron: "0 22 * * *"
+#     prompt: "Clean up temp files and summarize today's work."
+#     paused: false
+#     freshSession: false    # true = stops existing session before starting
+
+# Optional: auto-approve settings for --dangerously-skip-permissions
+autoApprove:
+  tools: [Read, Edit, Write, Bash, Agent]
+  paths:
+    write: ["**"]
+    read: ["**"]
+  bash:
+    allow: ["git *", "npm *", "node *", "npx *"]
+    deny: ["rm -rf /*", "sudo *"]
+
+escalateAlways: []
+
+peerAccess:
+  canConsult: []
+  canReceiveFrom: []
+
+# Optional: orchestration policy (blacklist model — all allowed by default)
+# orchestration:
+#   denyStart: []
+#   denyStop: []
+#   denySend: []
