@@ -10,7 +10,7 @@ import { AgentSession } from "./session/agent-session.js";
 import { ModeManager } from "./session/mode-manager.js";
 import { ConductorMcpServer } from "./mcp/server.js";
 import { buildMcpTools } from "./mcp/tools.js";
-import { StallJudge, stripTerminalChrome } from "./intelligence/stall-judge.js";
+import { StallJudge, stripTerminalChrome, detectNumberedOptions } from "./intelligence/stall-judge.js";
 import { checkOrchestrationPolicy } from "./engine/orchestration-policy.js";
 import { Scheduler } from "./engine/scheduler.js";
 import { initLogger, log } from "./logger.js";
@@ -83,7 +83,7 @@ export class Supervisor {
       statePath: resolve(baseDir, "data", "workspace.json"),
     });
 
-    this.stallJudge = new StallJudge();
+    this.stallJudge = new StallJudge(this.config.intelligence.stallJudgeModel);
 
     this.scheduler = new Scheduler({
       startAgent: (agent, prompt) => this.startAgent(agent, prompt),
@@ -634,7 +634,28 @@ export class Supervisor {
   }
 
   private async handleStallDetection(agent: string, captured: string): Promise<void> {
-    // 0. Post-sleep detection (cognitive agents only)
+    const autonomy = this.modeManager.getAutonomy(agent);
+    const nudgeLevel = this.modeManager.getNudgeLevel(agent);
+
+    // 0. Facilitated mode: operator is driving, ignore ALL stalls.
+    // This check MUST be first — facilitated agents should never receive
+    // auto-responses, compaction nudges, or post-sleep restarts from the conductor.
+    if (autonomy === "facilitated") {
+      log().debug("health", `${agent}: idle at prompt (facilitated) — not a stall`);
+      return;
+    }
+
+    // 1. Numbered option detection (memory prompts, permission prompts, etc.)
+    // These block agents completely. Respond with bare number, no prefix.
+    const optionCheck = detectNumberedOptions(captured, this.config.autoResponses);
+    if (optionCheck.detected) {
+      log().info("health", `${agent}: numbered option detected (${optionCheck.pattern}), responding: ${optionCheck.response}`);
+      this.workspace.runInPane(agent, optionCheck.response);
+      this.telegram?.send(`🔢 *${agent}* — auto-responded to ${optionCheck.pattern} prompt with "${optionCheck.response}"`);
+      return;
+    }
+
+    // 2. Post-sleep detection (cognitive agents only)
     if (this.isCognitiveAgent(agent)) {
       const sleepMarkers = [
         /checkpoint: session/i,
@@ -661,7 +682,7 @@ export class Supervisor {
       }
     }
 
-    // 1. Post-compaction nudge
+    // 3. Post-compaction nudge
     if (captured.match(/compacted|Compacted/i)) {
       log().info("health", `${agent}: post-compaction detected, sending resumption nudge`);
       const nudge = this.isCognitiveAgent(agent)
@@ -673,15 +694,6 @@ export class Supervisor {
           ].join("\n")
         : "[Auto-compaction detected] Your context was auto-compacted. Re-read any relevant files and continue where you left off.";
       this.workspace.runInPane(agent, nudge);
-      return;
-    }
-
-    const autonomy = this.modeManager.getAutonomy(agent);
-    const nudgeLevel = this.modeManager.getNudgeLevel(agent);
-
-    // 2. Facilitated mode: Operator is driving, ignore stalls
-    if (autonomy === "facilitated") {
-      log().debug("health", `${agent}: idle at prompt (facilitated) — not a stall`);
       return;
     }
 
@@ -1125,14 +1137,29 @@ export class Supervisor {
       }
 
       case "/auto": {
-        const agent = args.trim();
+        // /auto <agent> ["objective text"]
+        // /auto <agent|all>
+        const trimmed = args.trim();
+        const quoteMatch = trimmed.match(/^(\S+)\s+"(.+)"$/s) || trimmed.match(/^(\S+)\s+'(.+)'$/s);
+        const agent = quoteMatch ? quoteMatch[1] : trimmed;
+        const objective = quoteMatch ? quoteMatch[2] : null;
+
         if (agent === "all") {
           const agents = this.allAgentNames();
-          for (const a of agents) this.setAutonomy(a, "autonomous");
-          return `All ${agents.length} agents set to autonomous.`;
+          for (const a of agents) {
+            this.setAutonomy(a, "autonomous");
+            if (objective) this.modeManager.setAutoObjective(a, objective);
+          }
+          const objNote = objective ? ` Objective: "${objective.slice(0, 80)}"` : "";
+          return `All ${agents.length} agents set to autonomous.${objNote}`;
         }
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
         this.setAutonomy(agent, "autonomous");
+        if (objective) {
+          this.modeManager.setAutoObjective(agent, objective);
+          log().info("mode", `${agent}: auto with objective: ${objective.slice(0, 100)}`);
+          return `${agent} set to autonomous. Objective: "${objective.slice(0, 80)}"`;
+        }
         return `${agent} set to autonomous.`;
       }
 
@@ -1141,11 +1168,15 @@ export class Supervisor {
         const agent = args.trim();
         if (agent === "all") {
           const agents = this.allAgentNames();
-          for (const a of agents) this.setAutonomy(a, "facilitated");
+          for (const a of agents) {
+            this.setAutonomy(a, "facilitated");
+            this.modeManager.setAutoObjective(a, null);
+          }
           return `All ${agents.length} agents set to facilitated.`;
         }
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
         this.setAutonomy(agent, "facilitated");
+        this.modeManager.setAutoObjective(agent, null);
         return `${agent} set to facilitated.`;
       }
 

@@ -47,6 +47,14 @@ export type SupervisorConfig = {
     usageSessionThreshold?: number;
     usageWeeklyThreshold?: number;
   };
+  intelligence: {
+    stallJudgeModel: string;
+  };
+  autoResponses: {
+    memoryPrompts: number | null;
+    permissionPrompts: number | null;
+    unknownNumbered: number | null;
+  };
   localModel: {
     provider: string;
     model: string;
@@ -78,8 +86,19 @@ export function loadConfig(baseDir: string): SupervisorConfig {
 
   const raw = yaml.load(readFileSync(supervisorPath, "utf-8")) as Record<string, unknown>;
 
+  const rawIntelligence = (raw.intelligence ?? {}) as Record<string, unknown>;
+  const rawAutoResponses = (raw.autoResponses ?? {}) as Record<string, unknown>;
+
   const config: SupervisorConfig = {
     supervisor: raw.supervisor as SupervisorConfig["supervisor"],
+    intelligence: {
+      stallJudgeModel: (rawIntelligence.stallJudgeModel as string) ?? "claude-haiku-4-5-20251001",
+    },
+    autoResponses: {
+      memoryPrompts: (rawAutoResponses.memoryPrompts as number | null) ?? 1,
+      permissionPrompts: (rawAutoResponses.permissionPrompts as number | null) ?? 1,
+      unknownNumbered: (rawAutoResponses.unknownNumbered as number | null) ?? null,
+    },
     localModel: raw.localModel as SupervisorConfig["localModel"],
     telegram: {
       ...(raw.telegram as Record<string, unknown>),
