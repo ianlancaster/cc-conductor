@@ -7,6 +7,17 @@ supervisor:
   usageSessionThreshold: 80
   usageWeeklyThreshold: 70
 
+intelligence:
+  stallJudgeModel: claude-haiku-4-5-20251001
+
+# Auto-responses for Claude Code prompts that block agents.
+# These are bare number/string responses sent without any prefix.
+# Set to null to escalate to the operator instead of auto-responding.
+autoResponses:
+  memoryPrompts: 1          # "Memory updated" → 1 (Yes)
+  permissionPrompts: 1      # Permission requests → 1 (Yes)
+  unknownNumbered: null     # Unrecognized numbered prompts → escalate
+
 localModel:
   provider: ollama
   model: qwen3:8b

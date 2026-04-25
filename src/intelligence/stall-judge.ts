@@ -105,6 +105,44 @@ const PROMPTS: Record<NudgeLevel, string> = {
   aggressive: PROMPT_AGGRESSIVE,
 };
 
+export type NumberedOptionResponse = {
+  detected: true;
+  response: string;
+  pattern: string;
+} | {
+  detected: false;
+};
+
+const MEMORY_PROMPT_RE = /^\s*\?\s.*[Mm]emor/m;
+const PERMISSION_PROMPT_RE = /^\s*\?\s.*[Pp]ermission/m;
+const NUMBERED_OPTIONS_RE = /^\s*(?:\d+[\.\)]\s+.+\n){2,}/m;
+
+export function detectNumberedOptions(
+  paneContent: string,
+  autoResponses: { memoryPrompts: number | null; permissionPrompts: number | null; unknownNumbered: number | null },
+): NumberedOptionResponse {
+  const cleaned = stripTerminalChrome(paneContent);
+  if (!cleaned) return { detected: false };
+
+  if (MEMORY_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
+    if (autoResponses.memoryPrompts !== null) {
+      return { detected: true, response: String(autoResponses.memoryPrompts), pattern: "memory" };
+    }
+  }
+
+  if (PERMISSION_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
+    if (autoResponses.permissionPrompts !== null) {
+      return { detected: true, response: String(autoResponses.permissionPrompts), pattern: "permission" };
+    }
+  }
+
+  if (NUMBERED_OPTIONS_RE.test(cleaned) && autoResponses.unknownNumbered !== null) {
+    return { detected: true, response: String(autoResponses.unknownNumbered), pattern: "unknown" };
+  }
+
+  return { detected: false };
+}
+
 export class StallJudge {
   private model: string;
 

@@ -12,6 +12,8 @@ export type AgentState = {
   talkActive: boolean;
   activityStatus: ActivityStatus;
   cognitive: boolean;
+  autoObjective: string | null;
+  autoStartedAt: string | null;
 };
 
 export type SessionEvent =

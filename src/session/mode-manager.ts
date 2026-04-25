@@ -19,6 +19,8 @@ export class ModeManager {
         talkActive: false,
         activityStatus: "stopped",
         cognitive: false,
+        autoObjective: null,
+        autoStartedAt: null,
       });
     }
 
@@ -67,6 +69,19 @@ export class ModeManager {
   setCognitive(agent: string, cognitive: boolean): void {
     const state = this.agentStates.get(agent);
     if (state) state.cognitive = cognitive;
+  }
+
+  setAutoObjective(agent: string, objective: string | null): void {
+    const state = this.agentStates.get(agent);
+    if (state) {
+      state.autoObjective = objective;
+      state.autoStartedAt = objective ? new Date().toISOString() : null;
+      this.persistState();
+    }
+  }
+
+  getAutoObjective(agent: string): string | null {
+    return this.agentStates.get(agent)?.autoObjective ?? null;
   }
 
   getAgentState(agent: string): AgentState | undefined {
@@ -128,7 +143,12 @@ export class ModeManager {
       agents: Object.fromEntries(
         Array.from(this.agentStates.entries()).map(([k, v]) => [
           k,
-          { autonomy: v.autonomy, nudgeLevel: v.nudgeLevel },
+          {
+            autonomy: v.autonomy,
+            nudgeLevel: v.nudgeLevel,
+            autoObjective: v.autoObjective,
+            autoStartedAt: v.autoStartedAt,
+          },
         ])
       ),
     };
@@ -147,13 +167,20 @@ export class ModeManager {
 
     try {
       const data = JSON.parse(latest.detail) as {
-        agents: Record<string, { autonomy: Autonomy; nudgeLevel?: NudgeLevel }>;
+        agents: Record<string, {
+          autonomy: Autonomy;
+          nudgeLevel?: NudgeLevel;
+          autoObjective?: string | null;
+          autoStartedAt?: string | null;
+        }>;
       };
       for (const [agent, settings] of Object.entries(data.agents)) {
         const state = this.agentStates.get(agent);
         if (state) {
           state.autonomy = settings.autonomy;
           state.nudgeLevel = settings.nudgeLevel ?? "regular";
+          state.autoObjective = settings.autoObjective ?? null;
+          state.autoStartedAt = settings.autoStartedAt ?? null;
         }
       }
     } catch {
