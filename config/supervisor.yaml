@@ -41,6 +41,8 @@ transport:
 
 iterm:
   windowName: Agent Conductor
+  autoPauseOnFocus: false
+  autoPauseResumeDelaySeconds: 60
 
 mcp:
   port: 3456

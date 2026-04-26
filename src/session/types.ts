@@ -1,6 +1,13 @@
 export type Autonomy = "facilitated" | "autonomous" | "approve";
 export type NudgeLevel = "low" | "regular" | "aggressive";
-export type ActivityStatus = "working" | "stalled" | "awaiting_approval" | "wrapping_up" | "stopped";
+export type ActivityStatus = "working" | "stalled" | "awaiting_approval" | "stopped";
+
+export type PauseState = {
+  paused: boolean;
+  previousAutonomy: Autonomy | null;
+  previousNudgeLevel: NudgeLevel | null;
+  pausedBy: "manual" | "auto-focus" | null;
+};
 
 export type AgentState = {
   agent: string;
