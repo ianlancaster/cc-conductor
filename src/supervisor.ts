@@ -1543,8 +1543,13 @@ export class Supervisor {
         const message = args.slice(spaceIdx + 1).trim();
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
         log().info("telegram", `Directive to ${agent}: ${message.slice(0, 80)}`);
+        const agentState = this.modeManager.getAgentState(agent);
+        if (agentState?.sessionActive && this.workspace.isPaneAlive(agent)) {
+          this.workspace.runInPane(agent, message);
+          return `Message delivered to ${agent} (already running).`;
+        }
         this.startAgent(agent, message);
-        return `Directive sent to ${agent}.`;
+        return `Starting ${agent} with directive.`;
       }
 
       case "/clear": {
