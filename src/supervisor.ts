@@ -261,6 +261,12 @@ export class Supervisor {
     }, 30_000);
     log().info("usage", "Usage monitor started (first check in 30s, then 5m interval)");
 
+    // Register CLI command handler on the MCP server's /cmd endpoint
+    this.mcpServer.onCommand = (input) => this.handleCliCommand(input);
+
+    // Launch interactive CLI client in the primary (orientation) pane
+    this.launchCliInPrimaryPane();
+
     this.updateStatus();
     log().info("supervisor", "Agent Conductor ready");
 
@@ -650,6 +656,23 @@ export class Supervisor {
         this.updateStatus();
       }
     }
+  }
+
+  private launchCliInPrimaryPane(): void {
+    if (this.workspace.getWindowId() === null) return;
+
+    const port = this.mcpServer.getPort();
+    const scriptPath = resolve(this.baseDir, "src", "cli-client.mjs");
+
+    setTimeout(() => {
+      try {
+        // Run the CLI client script in the primary (first) pane of the conductor window
+        this.workspace.runInPrimaryPane(`node ${scriptPath} ${port}`);
+        log().info("supervisor", "CLI client launched in primary pane");
+      } catch (err) {
+        log().warn("supervisor", `Failed to launch CLI in primary pane: ${String(err)}`);
+      }
+    }, 2000);
   }
 
   async handleCliCommand(input: string): Promise<string> {

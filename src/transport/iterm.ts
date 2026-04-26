@@ -120,6 +120,23 @@ export class IterminalWorkspace {
     log().info("iterm", `Window created: id=${this.windowId}`);
   }
 
+  runInPrimaryPane(command: string): void {
+    if (this.windowId === null) return;
+    const path = this.writeTempContent(command);
+    this.runOsa(`
+      tell application "iTerm2"
+        tell window id ${this.windowId}
+          tell current session of first tab
+            set cmdText to (read POSIX file "${path}" as «class utf8»)
+            write text cmdText without newline
+            delay 0.2
+            write text (ASCII character 13)
+          end tell
+        end tell
+      end tell
+    `);
+  }
+
   /** Bring the conductor window to the foreground. */
   focusWindow(): void {
     if (this.windowId === null) return;
