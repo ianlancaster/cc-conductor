@@ -32,7 +32,9 @@ function sendCommand(command) {
   });
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "conductor> " });
+const RED = "\x1b[31m";
+const RESET = "\x1b[0m";
+const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: `${RED}conductor>${RESET} ` });
 
 console.log("Agent Conductor CLI (connected to localhost:" + port + ")");
 console.log("Type /help for commands, /status for overview, 'exit' to quit.\n");

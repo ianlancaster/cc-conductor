@@ -48,6 +48,7 @@ export class IterminalWorkspace {
   private statePath: string;
   private agentPanes = new Map<string, PaneInfo>();
   private systemPaneId: string | null = null;
+  private primaryPaneId: string | null = null;
   private tmpDir: string;
 
   constructor(config: IterminalConfig) {
@@ -110,14 +111,17 @@ export class IterminalWorkspace {
         set newWin to (create window with default profile)
         tell current session of current tab of newWin
           set name to "${this.escapeApple(this.windowName)}"
+          set sessId to id as string
         end tell
-        return id of newWin as string
+        return (id of newWin as string) & "|" & sessId
       end tell
     `);
 
-    this.windowId = parseInt(stdout.trim(), 10);
+    const [winIdStr, primaryId] = stdout.trim().split("|");
+    this.windowId = parseInt(winIdStr, 10);
+    this.primaryPaneId = primaryId ?? null;
     this.persistState();
-    log().info("iterm", `Window created: id=${this.windowId}`);
+    log().info("iterm", `Window created: id=${this.windowId}, primary=${this.primaryPaneId?.slice(0, 8)}`);
 
     // iTerm2 needs a moment after window creation before the window ID
     // is addressable via AppleScript in subsequent calls.
@@ -125,20 +129,11 @@ export class IterminalWorkspace {
   }
 
   runInPrimaryPane(command: string): void {
-    if (this.windowId === null) return;
-    const path = this.writeTempContent(command);
-    this.runOsa(`
-      tell application "iTerm2"
-        tell window id ${this.windowId}
-          tell current session of first tab
-            set cmdText to (read POSIX file "${path}" as «class utf8»)
-            write text cmdText without newline
-            delay 0.2
-            write text (ASCII character 13)
-          end tell
-        end tell
-      end tell
-    `);
+    if (!this.primaryPaneId) {
+      log().warn("iterm", "No primary pane ID stored — cannot launch CLI");
+      return;
+    }
+    this.writeTextLine(this.primaryPaneId, command);
   }
 
   /** Bring the conductor window to the foreground. */
@@ -616,6 +611,9 @@ export class IterminalWorkspace {
       if (typeof raw.systemPaneId === "string") {
         this.systemPaneId = raw.systemPaneId;
       }
+      if (typeof raw.primaryPaneId === "string") {
+        this.primaryPaneId = raw.primaryPaneId;
+      }
       log().debug(
         "iterm",
         `Loaded persisted state: window=${this.windowId}, agents=${this.agentPanes.size}`
@@ -631,6 +629,7 @@ export class IterminalWorkspace {
         windowId: this.windowId,
         agentPanes: Array.from(this.agentPanes.values()),
         systemPaneId: this.systemPaneId,
+        primaryPaneId: this.primaryPaneId,
       };
       writeFileSync(this.statePath, JSON.stringify(payload, null, 2), "utf-8");
     } catch (err) {
