@@ -22,9 +22,11 @@ const RESET = "\x1b[0m";
 export class Logger {
   private minLevel: number;
   private logFilePath: string | null;
+  private consoleEnabled: boolean;
 
-  constructor(level: LogLevel = "info", logFilePath?: string) {
+  constructor(level: LogLevel = "info", logFilePath?: string, consoleEnabled: boolean = true) {
     this.minLevel = LEVEL_ORDER[level];
+    this.consoleEnabled = consoleEnabled;
 
     if (logFilePath) {
       mkdirSync(dirname(logFilePath), { recursive: true });
@@ -32,6 +34,10 @@ export class Logger {
     } else {
       this.logFilePath = null;
     }
+  }
+
+  setConsoleEnabled(enabled: boolean): void {
+    this.consoleEnabled = enabled;
   }
 
   debug(component: string, message: string, meta?: Record<string, unknown>) {
@@ -56,12 +62,14 @@ export class Logger {
     const timestamp = new Date().toISOString();
     const metaStr = meta ? " " + JSON.stringify(meta) : "";
 
-    // Console: colored
-    const color = LEVEL_COLORS[level];
+    // Console: colored (disabled when CLI is active to avoid corrupting readline)
     const tag = level.toUpperCase().padEnd(5);
-    console.log(
-      `${"\x1b[90m"}${timestamp}${RESET} ${color}${tag}${RESET} [${component}] ${message}${metaStr}`
-    );
+    if (this.consoleEnabled) {
+      const color = LEVEL_COLORS[level];
+      console.log(
+        `${"\x1b[90m"}${timestamp}${RESET} ${color}${tag}${RESET} [${component}] ${message}${metaStr}`
+      );
+    }
 
     // File: plain
     if (this.logFilePath) {
