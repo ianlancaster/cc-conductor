@@ -13,12 +13,32 @@ PLIST_DST := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 # ─── Core ───────────────────────────────────────────────
 
 .PHONY: start
-start: data ## Start the conductor (foreground)
+start: data ## Start the conductor (foreground, current terminal)
 	$(TSX) src/index.ts
 
 .PHONY: start-all
 start-all: data ## Start conductor + open panes for all agents
 	$(TSX) src/index.ts --start-all
+
+.PHONY: launch
+launch: data ## Launch conductor inside its own iTerm2 window (all-in-one)
+	@WINID=$$(osascript -e ' \
+		tell application "iTerm2" \
+			activate \
+			set newWin to (create window with default profile) \
+			tell current session of current tab of newWin \
+				set name to "Agent Conductor" \
+			end tell \
+			return id of newWin as string \
+		end tell'); \
+	echo "{\"windowId\": $$WINID, \"agentPanes\": []}" > data/workspace.json; \
+	echo "Window created (id=$$WINID). Starting conductor..."; \
+	osascript -e " \
+		tell application \"iTerm2\" \
+			tell current session of current tab of window id $$WINID \
+				write text \"cd $(CURDIR) && $(TSX) src/index.ts --start-all\" \
+			end tell \
+		end tell"
 
 .PHONY: focus
 focus: ## Bring the iTerm2 conductor window to the foreground
