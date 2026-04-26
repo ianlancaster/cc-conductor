@@ -650,6 +650,19 @@ export class Supervisor {
     }
   }
 
+  async handleCliCommand(input: string): Promise<string> {
+    // Parse /command args — same format as Telegram
+    if (input.startsWith("/")) {
+      const spaceIdx = input.indexOf(" ");
+      const command = spaceIdx === -1 ? input : input.slice(0, spaceIdx);
+      const args = spaceIdx === -1 ? "" : input.slice(spaceIdx + 1);
+      return this.handleTelegramCommand(command, args);
+    }
+
+    // Bare text → route to talk target (same as Telegram free text)
+    return (await this.handleFreeText(input)) ?? "";
+  }
+
   isCognitiveAgent(agent: string): boolean {
     return this.modeManager.isCognitive(agent);
   }
