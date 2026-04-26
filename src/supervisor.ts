@@ -1309,7 +1309,7 @@ export class Supervisor {
             const current = this.modeManager.getPauseState(agent);
             if (current?.paused && current.pausedBy === "auto-focus") {
               log().info("mode", `${agent}: auto-resume cooldown expired — restoring ${current.previousAutonomy}`);
-              this.modeManager.resumeAgent(agent);
+              this.resumeAgentFromPause(agent);
             }
           }, this.autoPauseResumeDelaySeconds * 1000);
           this.autoPauseCooldowns.set(agent, timer);
@@ -1323,6 +1323,14 @@ export class Supervisor {
         }
       }
     }
+  }
+
+  private resumeAgentFromPause(agent: string): boolean {
+    const resumed = this.modeManager.resumeAgent(agent);
+    if (resumed) {
+      this.healthMonitor.resetAgent(agent);
+    }
+    return resumed;
   }
 
   private startFocusCheck(): void {
@@ -1340,7 +1348,7 @@ export class Supervisor {
       clearTimeout(timer);
       const pause = this.modeManager.getPauseState(agent);
       if (pause?.paused && pause.pausedBy === "auto-focus") {
-        this.modeManager.resumeAgent(agent);
+        this.resumeAgentFromPause(agent);
       }
     }
     this.autoPauseCooldowns.clear();
@@ -1596,11 +1604,11 @@ export class Supervisor {
         if (!agent) return "Usage: /resume <agent|all>";
         if (agent === "all") {
           const agents = this.allAgentNames();
-          const results = agents.map(a => this.modeManager.resumeAgent(a) ? `${a}: resumed` : `${a}: not paused`);
+          const results = agents.map(a => this.resumeAgentFromPause(a) ? `${a}: resumed` : `${a}: not paused`);
           return results.join("\n");
         }
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
-        if (this.modeManager.resumeAgent(agent)) {
+        if (this.resumeAgentFromPause(agent)) {
           return `${agent} resumed (restored to ${this.modeManager.getAutonomy(agent)}).`;
         }
         return `${agent} is not paused.`;
