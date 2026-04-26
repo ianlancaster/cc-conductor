@@ -21,24 +21,19 @@ start-all: data ## Start conductor + open panes for all agents
 	$(TSX) src/index.ts --start-all
 
 .PHONY: launch
-launch: data ## Launch conductor inside its own iTerm2 window (all-in-one)
-	@WINID=$$(osascript -e ' \
+launch: data ## Launch conductor in a new iTerm2 tab with CLI
+	@osascript -e ' \
 		tell application "iTerm2" \
 			activate \
-			set newWin to (create window with default profile) \
-			tell current session of current tab of newWin \
-				set name to "Agent Conductor" \
+			tell current window \
+				set newTab to (create tab with default profile) \
+				tell current session of newTab \
+					set name to "Conductor CLI" \
+					write text "cd $(CURDIR) && $(TSX) src/index.ts --start-all" \
+				end tell \
 			end tell \
-			return id of newWin as string \
-		end tell'); \
-	echo "{\"windowId\": $$WINID, \"agentPanes\": []}" > data/workspace.json; \
-	echo "Window created (id=$$WINID). Starting conductor..."; \
-	osascript -e " \
-		tell application \"iTerm2\" \
-			tell current session of current tab of window id $$WINID \
-				write text \"cd $(CURDIR) && $(TSX) src/index.ts --start-all\" \
-			end tell \
-		end tell"
+		end tell'
+	@echo "Conductor launching in new iTerm2 tab."
 
 .PHONY: focus
 focus: ## Bring the iTerm2 conductor window to the foreground

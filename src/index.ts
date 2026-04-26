@@ -5,6 +5,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { mkdirSync } from "fs";
 import { createInterface } from "readline";
+import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE_DIR = resolve(__dirname, "..");
@@ -29,12 +30,18 @@ const headless = process.argv.includes("--headless");
 supervisor.start({ startAll }).then(() => {
   if (headless || !process.stdin.isTTY) return;
 
+  // Disable console logging so it doesn't corrupt the readline prompt.
+  // All logs still go to data/conductor.log.
+  log().setConsoleEnabled(false);
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: "conductor> ",
   });
 
+  console.log("Agent Conductor CLI ready. Type /help for commands, 'exit' to quit.");
+  console.log("Logs: data/conductor.log (console logging disabled in CLI mode)");
   rl.prompt();
 
   rl.on("line", async (line) => {
