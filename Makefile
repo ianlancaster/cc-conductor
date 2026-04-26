@@ -20,6 +20,10 @@ start: data ## Start the conductor (foreground, current terminal)
 start-all: data ## Start conductor + open panes for all agents
 	$(TSX) src/index.ts --start-all
 
+.PHONY: start-bg
+start-bg: data ## Start conductor in background (headless)
+	@nohup $(TSX) src/index.ts --start-all > /dev/null 2>&1 & echo "Conductor started (pid $$!). Logs: data/conductor.log"
+
 .PHONY: launch
 launch: data ## Launch conductor in its own iTerm2 window — CLI + agent panes together
 	@osascript -e ' \
