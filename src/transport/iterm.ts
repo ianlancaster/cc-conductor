@@ -451,22 +451,24 @@ export class IterminalWorkspace {
     // Capture the pane
     const captured = this.captureSystemPane(40);
 
-    // Parse session %
-    const sessionMatch = captured.match(/Current session.*?\n.*?(\d+)%\s*used/s);
-    const weeklyMatch = captured.match(/Current week \(all models\).*?\n.*?(\d+)%\s*used/s);
-    const sessionResetMatch = captured.match(/Current session.*?Resets\s+(.+?)\s+(\d+)%/s);
-    const weeklyResetMatch = captured.match(/Current week \(all models\).*?Resets\s+(.+?)\s+(\d+)%/s);
+    // Parse percentages and reset times from /usage output.
+    // Match "Resets <time>" on a single line to avoid grabbing terminal art.
+    const sessionMatch = captured.match(/Current session.*?(\d+)%\s*used/s);
+    const weeklyMatch = captured.match(/Current week.*?(\d+)%\s*used/s);
+    const resetMatch = captured.match(/Resets\s+(.+?\(.*?\))/);
 
     if (!sessionMatch && !weeklyMatch) {
-      log().debug("iterm", "Usage parse failed", { captured: captured.slice(-200) });
+      log().debug("iterm", "Usage parse failed");
       return null;
     }
+
+    const resetTime = resetMatch?.[1]?.trim() ?? "unknown";
 
     return {
       session: sessionMatch ? parseInt(sessionMatch[1], 10) : 0,
       weekly: weeklyMatch ? parseInt(weeklyMatch[1], 10) : 0,
-      sessionReset: sessionResetMatch?.[1]?.trim() ?? "unknown",
-      weeklyReset: weeklyResetMatch?.[1]?.trim() ?? "unknown",
+      sessionReset: resetTime,
+      weeklyReset: resetTime,
     };
   }
 
