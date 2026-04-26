@@ -49,6 +49,7 @@ export type SupervisorConfig = {
   };
   intelligence: {
     stallJudgeModel: string;
+    operatorEmulator?: string;
   };
   autoResponses: {
     memoryPrompts: number | null;
@@ -93,6 +94,7 @@ export function loadConfig(baseDir: string): SupervisorConfig {
     supervisor: raw.supervisor as SupervisorConfig["supervisor"],
     intelligence: {
       stallJudgeModel: (rawIntelligence.stallJudgeModel as string) ?? "claude-haiku-4-5-20251001",
+      operatorEmulator: (rawIntelligence.operatorEmulator as string) ?? undefined,
     },
     autoResponses: {
       memoryPrompts: (rawAutoResponses.memoryPrompts as number | null) ?? 1,

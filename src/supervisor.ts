@@ -866,6 +866,7 @@ export class Supervisor {
       if (isSleepComplete && !isNapOnly) {
         log().info("health", `${agent}: post-sleep detected, restarting with /caffeinate`);
         this.telegram?.send(`🔄 *${agent}* completed /sleep. Restarting with /caffeinate.`);
+        this.notifyOperatorEmulator("sleep_complete", agent, "Agent completed /sleep. Restarting with /caffeinate.");
         await this.stopAgent(agent);
         await this.sleep(1000);
         await this.startAgent(agent, "/caffeinate");
@@ -905,6 +906,9 @@ export class Supervisor {
     const panePreview = cleaned.split("\n").slice(-20).join("\n");
 
     if (autonomy === "autonomous") {
+      // Notify operator emulator if one is configured
+      this.notifyOperatorEmulator("stall", agent, `Stall judge says: ${judgment.reasoning}. Draft: ${judgment.draft ?? "none"}`);
+
       // Auto mode: deliver directly + send audit trail to operator
       if (judgment.draft) {
         log().info("health", `${agent}: auto-nudging`);
@@ -968,6 +972,29 @@ export class Supervisor {
     ];
 
     this.telegram?.send(text, buttons);
+  }
+
+  private notifyOperatorEmulator(event: string, agent: string, detail: string): void {
+    const emulator = this.config.intelligence.operatorEmulator;
+    if (!emulator || !this.config.agents[emulator]) return;
+
+    const state = this.modeManager.getAgentState(emulator);
+    if (!state?.sessionActive) {
+      log().debug("emulator", `${emulator} not active, skipping ${event} notification for ${agent}`);
+      return;
+    }
+
+    const objective = this.modeManager.getAutoObjective?.(agent) ?? "none";
+    const message = [
+      `[Conductor Event: ${event}]`,
+      `Agent: ${agent}`,
+      `Objective: ${objective}`,
+      `Detail: ${detail}`,
+    ].join("\n");
+
+    const envelope = `[Message from conductor]\n${message}`;
+    this.workspace.runInPane(emulator, envelope);
+    log().info("emulator", `Notified ${emulator}: ${event} for ${agent}`);
   }
 
   private async handleUserResponse(from: string, message: string): Promise<string> {
