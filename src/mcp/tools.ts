@@ -24,6 +24,10 @@ export type McpToolDeps = {
   // Observability
   listAgents: () => AgentStatusReport[];
   getAgentStatus: (codename: string) => AgentStatusReport;
+  capturePane: (agent: string, lines?: number) => string;
+
+  // Mode control
+  setNudgeLevel: (codename: string, level: "low" | "regular" | "aggressive") => void;
   listEscalations: () => Array<{
     id: number;
     agent: string;
@@ -381,6 +385,60 @@ export function buildMcpTools(deps: McpToolDeps): Record<
       inputSchema: {},
       handler: async () => {
         return JSON.stringify(deps.listEscalations(), null, 2);
+      },
+    },
+
+    tail_agent: {
+      description:
+        "Read the trailing output from another agent's terminal pane. Returns the last N lines (default 30, max 500). Use this to observe what an agent is doing, read its questions, or monitor progress.",
+      inputSchema: {
+        from: { type: "string", description: "Your agent codename (the caller)" },
+        codename: { type: "string", description: "Agent codename to read from" },
+        lines: { type: "number", description: "Number of trailing lines to capture (default 30, max 500)" },
+      },
+      handler: async (args) => {
+        const from = args.from as string;
+        const codename = args.codename as string;
+        const lines = (args.lines as number) ?? 30;
+        const err = requireArg(from, "from") || requireArg(codename, "codename");
+        if (err) return err;
+        if (!deps.agentExists(codename)) return `Error: unknown agent '${codename}'`;
+        if (lines < 1 || lines > 500) return "Error: lines must be 1-500.";
+        const content = deps.capturePane(codename, lines);
+        if (!content.trim()) {
+          return `No output captured from ${codename} (pane may not exist or be empty).`;
+        }
+        return content;
+      },
+    },
+
+    set_nudge_level: {
+      description:
+        "Set an agent's nudge level, which controls how aggressively the conductor prompts idle agents. 'low' = longer stall tolerance, 'regular' = default, 'aggressive' = shorter tolerance.",
+      inputSchema: {
+        from: { type: "string", description: "Your agent codename (the caller)" },
+        codename: { type: "string", description: "Agent codename to configure" },
+        level: {
+          type: "string",
+          description: "Nudge level",
+          enum: ["low", "regular", "aggressive"],
+        },
+      },
+      handler: async (args) => {
+        const from = args.from as string;
+        const codename = args.codename as string;
+        const level = args.level as "low" | "regular" | "aggressive";
+        const err =
+          requireArg(from, "from") ||
+          requireArg(codename, "codename") ||
+          requireArg(level, "level");
+        if (err) return err;
+        if (level !== "low" && level !== "regular" && level !== "aggressive") {
+          return "Error: level must be 'low', 'regular', or 'aggressive'";
+        }
+        if (!deps.agentExists(codename)) return `Error: unknown agent '${codename}'`;
+        deps.setNudgeLevel(codename, level);
+        return `${codename} nudge level set to ${level}.`;
       },
     },
   };
