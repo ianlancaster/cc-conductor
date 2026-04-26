@@ -26,8 +26,9 @@ process.on("SIGTERM", async () => {
 
 const startAll = process.argv.includes("--start-all");
 const headless = process.argv.includes("--headless");
+const inline = process.argv.includes("--inline");
 
-supervisor.start({ startAll }).then(() => {
+supervisor.start({ startAll, inline }).then(() => {
   if (headless || !process.stdin.isTTY) return;
 
   // Disable console logging so it doesn't corrupt the readline prompt.
