@@ -424,8 +424,12 @@ export class Supervisor {
       log().error("mode", `Cannot set autonomy for unknown agent: ${agentName}`);
       return;
     }
+    const previous = this.modeManager.getAutonomy(agentName);
     log().info("mode", `${agentName} → ${autonomy}`);
     this.modeManager.setAutonomy(agentName, autonomy);
+    if (previous === "facilitated" && autonomy !== "facilitated") {
+      this.healthMonitor.resetAgent(agentName);
+    }
   }
 
   async sendToAgent(agentName: string, message: string): Promise<void> {
