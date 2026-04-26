@@ -177,6 +177,7 @@ export class Supervisor {
       continueAgent: (codename) => this.continueAgent(codename),
       setAutonomy: (codename, autonomy) => this.setAutonomy(codename, autonomy),
       sendToAgent: (codename, message) => this.sendToAgent(codename, message),
+      typeInPane: (codename, text) => this.workspace.runInPane(codename, text),
 
       requestContext: (codename) => this.requestContext(codename),
       requestRestart: (codename, reason) => this.requestRestart(codename, reason),

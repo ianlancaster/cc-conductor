@@ -54,3 +54,10 @@ Observability:
 - list_agents() — All agents with status
 - get_agent_status(codename) — One agent's detailed status
 - list_escalations() — Pending escalation queue
+- tail_agent(from, codename, lines?) — Read trailing output from a peer's terminal pane
+
+Mode control:
+- set_nudge_level(from, codename, level) — Set peer's nudge sensitivity (low/regular/aggressive)
+
+Raw input:
+- type_in_pane(from, codename, text) — Type raw text into a peer's pane with no envelope. Use for numbered prompts, slash commands, or when the [Message from] wrapper would corrupt the input.
