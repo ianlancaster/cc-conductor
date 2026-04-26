@@ -27,6 +27,27 @@ export class ModeManager {
     this.loadPersistedState();
   }
 
+  addAgent(agent: string): void {
+    if (this.agentStates.has(agent)) return;
+    this.agentStates.set(agent, {
+      agent,
+      autonomy: "facilitated",
+      nudgeLevel: "regular",
+      sessionActive: false,
+      paneId: null,
+      sessionId: null,
+      talkActive: false,
+      activityStatus: "stopped",
+      cognitive: false,
+      autoObjective: null,
+      autoStartedAt: null,
+    });
+  }
+
+  removeAgent(agent: string): void {
+    this.agentStates.delete(agent);
+  }
+
   getAutonomy(agent: string): Autonomy {
     return this.agentStates.get(agent)?.autonomy ?? "facilitated";
   }
