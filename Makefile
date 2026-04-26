@@ -21,19 +21,17 @@ start-all: data ## Start conductor + open panes for all agents
 	$(TSX) src/index.ts --start-all
 
 .PHONY: launch
-launch: data ## Launch conductor in a new iTerm2 tab with CLI
+launch: data ## Launch conductor in its own iTerm2 window — CLI + agent panes together
 	@osascript -e ' \
 		tell application "iTerm2" \
 			activate \
-			tell current window \
-				set newTab to (create tab with default profile) \
-				tell current session of newTab \
-					set name to "Conductor CLI" \
-					write text "cd $(CURDIR) && $(TSX) src/index.ts --start-all" \
-				end tell \
+			set newWin to (create window with default profile) \
+			tell current session of current tab of newWin \
+				set name to "Conductor" \
+				write text "cd $(CURDIR) && $(TSX) src/index.ts --start-all --inline" \
 			end tell \
 		end tell'
-	@echo "Conductor launching in new iTerm2 tab."
+	@echo "Conductor launching in iTerm2 (inline mode)."
 
 .PHONY: focus
 focus: ## Bring the iTerm2 conductor window to the foreground

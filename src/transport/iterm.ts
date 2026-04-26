@@ -76,7 +76,7 @@ export class IterminalWorkspace {
     }
   }
 
-  createWorkspace(): void {
+  createWorkspace(opts?: { inline?: boolean }): void {
     if (this.isWorkspaceAlive()) {
       log().info("iterm", `Existing conductor window found (id=${this.windowId}) — rediscovering tabs`);
       this.cleanupAndRediscover();
@@ -84,13 +84,25 @@ export class IterminalWorkspace {
       return;
     }
 
-    // Create the window and its initial (orientation) pane in one
-    // AppleScript call. We set only the session name; we intentionally do
-    // NOT write any content (banner, escape sequences) at this stage —
-    // the shell is still initializing and any bytes written now go onto
-    // its stdin buffer rather than being interpreted by the terminal.
-    // The initial pane is just a shell for the user to type in if they
-    // want; agent panes are created later via createAgentPane.
+    // Inline mode: the conductor is already running inside an iTerm pane.
+    // Detect the current window and use it instead of creating a new one.
+    if (opts?.inline) {
+      log().info("iterm", "Inline mode: detecting current iTerm2 window");
+      try {
+        const stdout = this.runOsa(`
+          tell application "iTerm2"
+            return id of current window as string
+          end tell
+        `);
+        this.windowId = parseInt(stdout.trim(), 10);
+        this.persistState();
+        log().info("iterm", `Using current window: id=${this.windowId}`);
+        return;
+      } catch (err) {
+        log().warn("iterm", `Inline detection failed, falling back to new window: ${String(err)}`);
+      }
+    }
+
     log().info("iterm", `Creating iTerm2 window: "${this.windowName}"`);
     const stdout = this.runOsa(`
       tell application "iTerm2"

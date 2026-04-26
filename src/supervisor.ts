@@ -212,10 +212,10 @@ export class Supervisor {
     log().debug("supervisor", `MCP config written to ${this.mcpConfigPath}`);
   }
 
-  async start(opts?: { startAll?: boolean }): Promise<void> {
+  async start(opts?: { startAll?: boolean; inline?: boolean }): Promise<void> {
     log().info("supervisor", "Starting...");
 
-    this.workspace.createWorkspace();
+    this.workspace.createWorkspace({ inline: opts?.inline });
     log().info("iterm", "iTerm2 workspace created");
 
     // Mark rediscovered agents (survived restart) as active
