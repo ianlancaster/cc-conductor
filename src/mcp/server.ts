@@ -12,14 +12,19 @@ export class ConductorMcpServer {
   private server: Server;
   private tools: McpServerConfig["tools"];
   private port: number;
+  onCommand: ((input: string) => Promise<string>) | null;
 
   constructor(config: McpServerConfig) {
     this.tools = config.tools;
     this.port = config.port;
 
+    this.onCommand = null;
+
     this.server = createServer(async (req, res) => {
       if (req.method === "POST" && req.url === "/mcp") {
         await this.handleMcpRequest(req, res);
+      } else if (req.method === "POST" && req.url === "/cmd") {
+        await this.handleCmdRequest(req, res);
       } else if (req.method === "GET" && req.url === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "ok", tools: Object.keys(this.tools) }));
@@ -173,6 +178,32 @@ export class ConductorMcpServer {
           error: { code: -32700, message: `Parse error: ${err}` },
         })
       );
+    }
+  }
+
+  private async handleCmdRequest(
+    req: import("http").IncomingMessage,
+    res: import("http").ServerResponse
+  ): Promise<void> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk as Buffer);
+    }
+    const body = Buffer.concat(chunks).toString("utf-8");
+
+    try {
+      const { command } = JSON.parse(body) as { command: string };
+      if (!this.onCommand) {
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "CLI handler not registered" }));
+        return;
+      }
+      const response = await this.onCommand(command);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ response }));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(err) }));
     }
   }
 }
