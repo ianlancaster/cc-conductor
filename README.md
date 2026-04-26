@@ -50,6 +50,11 @@ Conversation:
   /broadcast <msg>            Send message to all active agents
   //<cmd>                     Forward slash command to talk target
 
+Lifecycle:
+  /spawn <name> [opts]        Create + start a new instance
+                              --path /dir  --model model  --prompt "text"
+  /teardown <name> [--delete] Stop + deregister (--delete removes directory)
+
 Modes:
   /auto <agent|all>           Autonomous mode
   /approve <agent|all>        Approve mode
@@ -124,6 +129,8 @@ The conductor runs an HTTP MCP server on `localhost:3456`. Agents connect via `-
 | `stop_agent` | Stop a peer's session |
 | `continue_agent` | Resume a peer's last session |
 | `set_autonomy` | Set a peer's autonomy mode |
+| `spawn_agent` | Create + register + start a new instance |
+| `teardown_agent` | Stop + deregister + optionally delete an instance |
 
 ### Context Management
 | Tool | Description |

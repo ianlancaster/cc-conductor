@@ -39,6 +39,10 @@ export type McpToolDeps = {
     target: string
   ) => PolicyCheck;
 
+  // Lifecycle
+  spawnAgent: (codename: string, opts?: { path?: string; model?: string; prompt?: string }) => Promise<string>;
+  teardownAgent: (codename: string, deleteDir?: boolean) => Promise<string>;
+
   // Registry — used to validate agent codenames in tool calls
   agentExists: (codename: string) => boolean;
 };
@@ -266,6 +270,48 @@ export function buildMcpTools(deps: McpToolDeps): Record<
         const envelope = `[Message from ${from}]\n${message}`;
         await deps.sendToAgent(codename, envelope);
         return `Message sent to ${codename}.`;
+      },
+    },
+
+    // ── Lifecycle ──────────────────────────────────────────────────────
+
+    spawn_agent: {
+      description:
+        "Create and start a new Claude Code instance. Creates directory if needed, writes config, registers, and starts a session. Use for ephemeral work, testing, or on-demand instances.",
+      inputSchema: {
+        from: { type: "string", description: "Your agent codename (the caller)" },
+        codename: { type: "string", description: "Codename for the new agent" },
+        path: { type: "string", description: "Directory path (optional — defaults to sibling of conductor)" },
+        model: { type: "string", description: "Claude model (optional — defaults to claude-sonnet-4-6)" },
+        prompt: { type: "string", description: "Initial prompt to send after starting (optional)" },
+      },
+      handler: async (args) => {
+        const from = args.from as string;
+        const codename = args.codename as string;
+        const err = requireArg(from, "from") || requireArg(codename, "codename");
+        if (err) return err;
+        return deps.spawnAgent(codename, {
+          path: args.path as string | undefined,
+          model: args.model as string | undefined,
+          prompt: args.prompt as string | undefined,
+        });
+      },
+    },
+
+    teardown_agent: {
+      description:
+        "Stop, deregister, and optionally delete a spawned agent. Refuses to delete directories with .git or .cognitive-agent markers.",
+      inputSchema: {
+        from: { type: "string", description: "Your agent codename (the caller)" },
+        codename: { type: "string", description: "Agent codename to tear down" },
+        deleteDir: { type: "boolean", description: "Also delete the agent's directory (default false)" },
+      },
+      handler: async (args) => {
+        const from = args.from as string;
+        const codename = args.codename as string;
+        const err = requireArg(from, "from") || requireArg(codename, "codename");
+        if (err) return err;
+        return deps.teardownAgent(codename, args.deleteDir === true);
       },
     },
 

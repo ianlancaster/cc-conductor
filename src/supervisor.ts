@@ -15,7 +15,7 @@ import { checkOrchestrationPolicy } from "./engine/orchestration-policy.js";
 import { Scheduler } from "./engine/scheduler.js";
 import { initLogger, log } from "./logger.js";
 import { resolve, join } from "path";
-import { writeFileSync, existsSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from "fs";
 
 export type AgentStatusReport = {
   codename: string;
@@ -194,6 +194,9 @@ export class Supervisor {
 
       checkOrchestrationPolicy: (sender, verb, target) =>
         this.checkOrchestrationPolicy(sender, verb, target),
+
+      spawnAgent: (codename, opts) => this.spawnAgent(codename, opts),
+      teardownAgent: (codename, deleteDir) => this.teardownAgent(codename, deleteDir),
 
       agentExists: (codename) => !!this.config.agents[codename],
     });
@@ -657,6 +660,112 @@ export class Supervisor {
     }
   }
 
+  async spawnAgent(codename: string, opts?: {
+    path?: string;
+    model?: string;
+    prompt?: string;
+  }): Promise<string> {
+    if (this.config.agents[codename]) {
+      return `Error: agent '${codename}' already exists.`;
+    }
+
+    const agentDir = opts?.path ?? resolve(this.baseDir, "..", codename);
+    const model = opts?.model ?? "claude-sonnet-4-6";
+
+    // Create directory if needed
+    if (!existsSync(agentDir)) {
+      mkdirSync(agentDir, { recursive: true });
+      log().info("spawn", `Created directory: ${agentDir}`);
+    }
+
+    // Write YAML config
+    const yamlContent = [
+      `agent: ${codename}`,
+      `codename: ${codename}`,
+      `repo: ${agentDir}`,
+      `model: ${model}`,
+      `maxTurns: 50`,
+      ``,
+      `autoApprove:`,
+      `  tools: [Read, Edit, Write, Bash, Agent]`,
+      `  paths:`,
+      `    write: ["**"]`,
+      `    read: ["**"]`,
+      `  bash:`,
+      `    allow: ["git *", "ls *", "cat *", "echo *", "node *", "npm *", "python3 *", "find *", "grep *"]`,
+      `    deny: ["rm -rf /*", "sudo *"]`,
+      ``,
+      `escalateAlways: []`,
+      ``,
+      `peerAccess:`,
+      `  canConsult: []`,
+      `  canReceiveFrom: []`,
+    ].join("\n");
+
+    const configPath = resolve(this.agentsDir, `${codename}.yaml`);
+    writeFileSync(configPath, yamlContent, "utf-8");
+    log().info("spawn", `Config written: ${configPath}`);
+
+    // Register immediately (don't wait for hot-reload)
+    const { loadAgentConfigs } = await import("./config.js");
+    const freshAgents = loadAgentConfigs(this.agentsDir);
+    const policy = freshAgents[codename];
+    if (!policy) {
+      return `Error: failed to load config for '${codename}' after writing.`;
+    }
+    this.config.agents[codename] = policy;
+    this.modeManager.addAgent(codename);
+
+    // Start the session
+    await this.startAgent(codename, opts?.prompt);
+
+    const promptNote = opts?.prompt ? ` with prompt` : "";
+    return `Spawned ${codename} at ${agentDir} (${model})${promptNote}.`;
+  }
+
+  async teardownAgent(codename: string, deleteDir: boolean = false): Promise<string> {
+    const policy = this.config.agents[codename];
+    if (!policy) {
+      return `Error: unknown agent '${codename}'.`;
+    }
+
+    // Safety: refuse --delete on git repos or cognitive agents
+    if (deleteDir) {
+      if (existsSync(join(policy.repo, ".git"))) {
+        return `Error: refusing to delete '${policy.repo}' — it has a .git directory. Remove manually if intended.`;
+      }
+      if (existsSync(join(policy.repo, ".cognitive-agent"))) {
+        return `Error: refusing to delete '${policy.repo}' — it's a cognitive agent. Use a deliberate process.`;
+      }
+    }
+
+    // Stop if running
+    const state = this.modeManager.getAgentState(codename);
+    if (state?.sessionActive) {
+      await this.stopAgent(codename);
+    }
+
+    // Remove config file
+    const configPath = resolve(this.agentsDir, `${codename}.yaml`);
+    if (existsSync(configPath)) {
+      unlinkSync(configPath);
+      log().info("teardown", `Config removed: ${configPath}`);
+    }
+
+    // Deregister
+    delete this.config.agents[codename];
+    this.modeManager.removeAgent(codename);
+
+    // Delete directory if requested
+    if (deleteDir) {
+      rmSync(policy.repo, { recursive: true, force: true });
+      log().info("teardown", `Directory deleted: ${policy.repo}`);
+      return `Torn down ${codename}. Directory deleted.`;
+    }
+
+    return `Torn down ${codename}. Directory preserved at ${policy.repo}.`;
+  }
+
   private launchCliInPrimaryPane(): void {
     if (this.workspace.getWindowId() === null) return;
 
@@ -1081,6 +1190,10 @@ export class Supervisor {
       "`/<agent> <msg>` — shortcut for talk+send",
       "`/broadcast <msg>` — send message to all active agents",
       "",
+      "*Lifecycle:*",
+      "`/spawn <name> [--path p] [--model m] [--prompt \"p\"]` — create + start",
+      "`/teardown <name> [--delete]` — stop + deregister (--delete removes dir)",
+      "",
       "*Modes:*",
       "`/auto <agent|all>` — autonomous mode",
       "`/approve <agent|all>` — approve mode",
@@ -1253,6 +1366,35 @@ export class Supervisor {
         this.setAutonomy(agent, "facilitated");
         this.modeManager.setAutoObjective(agent, null);
         return `${agent} set to facilitated.`;
+      }
+
+      case "/spawn": {
+        // /spawn <codename> [--path /path] [--model model] [--prompt "text"]
+        const spawnArgs = args.trim();
+        if (!spawnArgs) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"]";
+        const spawnParts = spawnArgs.match(/^(\S+)(.*)/);
+        if (!spawnParts) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"]";
+        const spawnCodename = spawnParts[1];
+        const spawnRest = spawnParts[2];
+        const pathMatch = spawnRest.match(/--path\s+(\S+)/);
+        const modelMatch = spawnRest.match(/--model\s+(\S+)/);
+        const promptMatch = spawnRest.match(/--prompt\s+"([^"]+)"/);
+        const result = await this.spawnAgent(spawnCodename, {
+          path: pathMatch?.[1],
+          model: modelMatch?.[1],
+          prompt: promptMatch?.[1],
+        });
+        return result;
+      }
+
+      case "/teardown": {
+        // /teardown <codename> [--delete]
+        const tdArgs = args.trim();
+        if (!tdArgs) return "Usage: /teardown <codename> [--delete]";
+        const tdParts = tdArgs.split(/\s+/);
+        const tdCodename = tdParts[0];
+        const tdDelete = tdParts.includes("--delete");
+        return this.teardownAgent(tdCodename, tdDelete);
       }
 
       case "/tell": {
