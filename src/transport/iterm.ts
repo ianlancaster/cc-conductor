@@ -379,48 +379,20 @@ export class IterminalWorkspace {
   }
 
   getFocusedAgent(): string | null {
-    if (this.windowId === null) {
-      log().debug("iterm", "getFocusedAgent: no windowId");
-      return null;
-    }
+    if (this.windowId === null) return null;
     try {
-      const result = this.runOsa(`
+      const sessionId = this.runOsa(`
         tell application "iTerm2"
-          set frontApp to (name of current application)
-          if frontmost of application "iTerm2" is false then return "app_not_focused"
-          try
-            set cw to current window
-            set cwId to id of cw
-          on error
-            return "no_current_window"
-          end try
-          if cwId is not ${this.windowId} then return "wrong_window:" & cwId
           tell window id ${this.windowId}
-            set cs to current session of current tab
-            return id of cs
+            return id of current session of current tab
           end tell
         end tell
       `).trim();
-
-      if (result === "app_not_focused" || result === "no_current_window") {
-        log().debug("iterm", `getFocusedAgent: ${result}`);
-        return null;
-      }
-      if (result.startsWith("wrong_window:")) {
-        log().debug("iterm", `getFocusedAgent: ${result} (conductor is ${this.windowId})`);
-        return null;
-      }
-
       for (const [agent, pane] of this.agentPanes.entries()) {
-        if (pane.sessionId === result) {
-          log().debug("iterm", `getFocusedAgent: ${agent} (session ${result.slice(0, 8)})`);
-          return agent;
-        }
+        if (pane.sessionId === sessionId) return agent;
       }
-      log().debug("iterm", `getFocusedAgent: unknown session ${result.slice(0, 8)} (not a tracked agent)`);
       return null;
-    } catch (err) {
-      log().warn("iterm", `getFocusedAgent: AppleScript error: ${String(err)}`);
+    } catch {
       return null;
     }
   }
