@@ -1280,9 +1280,14 @@ export class Supervisor {
     this.workspace.updateWindowTitle(statusText);
   }
 
+  private lastFocusedAgent: string | null = null;
+
   private checkFocusAutoPause(): void {
     const focused = this.workspace.getFocusedAgent();
-    log().debug("mode", `Focus check: ${focused ?? "none"}`);
+    if (focused !== this.lastFocusedAgent) {
+      log().debug("mode", `Focus changed: ${this.lastFocusedAgent ?? "none"} → ${focused ?? "none"}`);
+      this.lastFocusedAgent = focused;
+    }
 
     for (const agent of this.allAgentNames()) {
       const pause = this.modeManager.getPauseState(agent);
