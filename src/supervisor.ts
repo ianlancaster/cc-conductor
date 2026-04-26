@@ -1,4 +1,4 @@
-import { loadConfig, type SupervisorConfig } from "./config.js";
+import { loadConfig, loadAgentConfigs, type SupervisorConfig } from "./config.js";
 import { StateStore } from "./engine/state-store.js";
 import { PermissionEngine } from "./engine/permission-engine.js";
 import { HealthMonitor } from "./engine/health-monitor.js";
@@ -56,9 +56,13 @@ export class Supervisor {
   private mcpConfigPath: string;
   private systemPromptPath: string;
   private cognitivePromptPath: string;
+  private agentsDir: string;
+  private baseDir: string;
 
   constructor(baseDir: string) {
+    this.baseDir = baseDir;
     this.config = loadConfig(baseDir);
+    this.agentsDir = resolve(baseDir, "config", "agents");
 
     const logLevel = (this.config.supervisor.logLevel ?? "info") as "debug" | "info" | "warn" | "error";
     initLogger(logLevel, resolve(baseDir, "data", "conductor.log"));
@@ -237,8 +241,11 @@ export class Supervisor {
     }
 
     this.healthMonitor.startHeartbeat();
-    // Scheduler piggybacks on the same heartbeat interval
-    setInterval(() => this.scheduler.check(), this.config.supervisor.heartbeatIntervalSeconds * 1000);
+    // Scheduler and agent-config hot-reload piggyback on the same heartbeat interval
+    setInterval(() => {
+      this.scheduler.check();
+      this.reloadAgentConfigs();
+    }, this.config.supervisor.heartbeatIntervalSeconds * 1000);
     log().info("health", `Heartbeat started (${this.config.supervisor.heartbeatIntervalSeconds}s interval)`);
 
     log().info("intelligence", "Stall judge ready (Claude API)");
@@ -608,6 +615,37 @@ export class Supervisor {
         if (state?.sessionActive) {
           this.workspace.runInPane(agent, "[RATE LIMIT CLEARED] Usage has reset. You may resume work.");
         }
+      }
+    }
+  }
+
+  private reloadAgentConfigs(): void {
+    const freshAgents = loadAgentConfigs(this.agentsDir);
+    const currentNames = new Set(Object.keys(this.config.agents));
+    const freshNames = new Set(Object.keys(freshAgents));
+
+    // Detect new agents
+    for (const name of freshNames) {
+      if (!currentNames.has(name)) {
+        this.config.agents[name] = freshAgents[name];
+        this.modeManager.addAgent(name);
+        log().info("supervisor", `Hot-reload: new agent registered — ${name}`);
+        this.updateStatus();
+      }
+    }
+
+    // Detect removed agents (only if not currently active)
+    for (const name of currentNames) {
+      if (!freshNames.has(name)) {
+        const state = this.modeManager.getAgentState(name);
+        if (state?.sessionActive) {
+          log().warn("supervisor", `Hot-reload: ${name} config removed but session active — keeping`);
+          continue;
+        }
+        delete this.config.agents[name];
+        this.modeManager.removeAgent(name);
+        log().info("supervisor", `Hot-reload: agent deregistered — ${name}`);
+        this.updateStatus();
       }
     }
   }

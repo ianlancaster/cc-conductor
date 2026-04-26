@@ -123,3 +123,20 @@ export function loadConfig(baseDir: string): SupervisorConfig {
 
   return config;
 }
+
+export function loadAgentConfigs(agentsDir: string): Record<string, AgentPolicy> {
+  const agents: Record<string, AgentPolicy> = {};
+  if (!existsSync(agentsDir)) return agents;
+  for (const file of readdirSync(agentsDir)) {
+    if (!file.endsWith(".yaml")) continue;
+    try {
+      const agent = yaml.load(
+        readFileSync(join(agentsDir, file), "utf-8")
+      ) as AgentPolicy;
+      if (agent?.codename) agents[agent.codename] = agent;
+    } catch {
+      // Skip malformed configs
+    }
+  }
+  return agents;
+}
