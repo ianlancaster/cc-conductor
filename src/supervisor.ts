@@ -183,6 +183,8 @@ export class Supervisor {
 
       listAgents: () => this.listAgents(),
       getAgentStatus: (codename) => this.getAgentStatus(codename),
+      capturePane: (agent, lines) => this.workspace.capturePane(agent, lines),
+      setNudgeLevel: (codename, level) => this.modeManager.setNudgeLevel(codename, level),
       listEscalations: () =>
         this.stateStore.getPendingEscalations().map((e) => ({
           id: e.id,
@@ -1242,8 +1244,14 @@ export class Supervisor {
       case "/help":
         return this.buildWelcomeMessage();
 
-      case "/status":
+      case "/status": {
+        const statusAgent = args.trim();
+        if (statusAgent && this.config.agents[statusAgent]) {
+          const report = this.getAgentStatus(statusAgent);
+          return JSON.stringify(report, null, 2);
+        }
         return this.buildWelcomeMessage();
+      }
 
       case "/broadcast": {
         const message = args.trim();
