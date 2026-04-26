@@ -115,7 +115,8 @@ export type NumberedOptionResponse = {
 
 const MEMORY_PROMPT_RE = /^\s*\?\s.*[Mm]emor/m;
 const PERMISSION_PROMPT_RE = /^\s*\?\s.*[Pp]ermission/m;
-const NUMBERED_OPTIONS_RE = /^\s*(?:\d+[\.\)]\s+.+\n){2,}/m;
+const FILE_CREATE_PROMPT_RE = /Do you want to (?:create|write|edit|update)\s/m;
+const NUMBERED_OPTIONS_RE = /^\s*(?:❯?\s*\d+[\.\)]\s+.+\n?){2,}/m;
 
 export function detectNumberedOptions(
   paneContent: string,
@@ -133,6 +134,12 @@ export function detectNumberedOptions(
   if (PERMISSION_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
     if (autoResponses.permissionPrompts !== null) {
       return { detected: true, response: String(autoResponses.permissionPrompts), pattern: "permission" };
+    }
+  }
+
+  if (FILE_CREATE_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
+    if (autoResponses.permissionPrompts !== null) {
+      return { detected: true, response: String(autoResponses.permissionPrompts), pattern: "file_create" };
     }
   }
 
