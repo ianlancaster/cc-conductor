@@ -378,6 +378,27 @@ export class IterminalWorkspace {
     this.persistState();
   }
 
+  getFocusedAgent(): string | null {
+    if (this.windowId === null) return null;
+    try {
+      const sessionId = this.runOsa(`
+        tell application "iTerm2"
+          if (id of current window) is not ${this.windowId} then return "none"
+          tell window id ${this.windowId}
+            return id of current session of current tab
+          end tell
+        end tell
+      `).trim();
+      if (sessionId === "none") return null;
+      for (const [agent, pane] of this.agentPanes.entries()) {
+        if (pane.sessionId === sessionId) return agent;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   hasAgent(agent: string): boolean {
     return this.agentPanes.has(agent);
   }

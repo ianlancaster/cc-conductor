@@ -58,6 +58,10 @@ export class Supervisor {
   private cognitivePromptPath: string;
   private agentsDir: string;
   private baseDir: string;
+  private autoPauseOnFocus: boolean;
+  private autoPauseResumeDelaySeconds: number;
+  private autoPauseCooldowns = new Map<string, ReturnType<typeof setTimeout>>();
+  private focusCheckIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor(baseDir: string) {
     this.baseDir = baseDir;
@@ -82,6 +86,8 @@ export class Supervisor {
     this.modeManager = new ModeManager(this.stateStore, agentNames, modeStatePath);
 
     const itermConfig = (this.config as Record<string, unknown>).iterm as Record<string, unknown> | undefined;
+    this.autoPauseOnFocus = (itermConfig?.autoPauseOnFocus as boolean) ?? false;
+    this.autoPauseResumeDelaySeconds = (itermConfig?.autoPauseResumeDelaySeconds as number) ?? 60;
     this.workspace = new IterminalWorkspace({
       windowName: (itermConfig?.windowName as string) ?? "Agent Conductor",
       statePath: resolve(baseDir, "data", "workspace.json"),
@@ -90,7 +96,13 @@ export class Supervisor {
     this.stallJudge = new StallJudge(this.config.intelligence.stallJudgeModel);
 
     this.scheduler = new Scheduler({
-      startAgent: (agent, prompt) => this.startAgent(agent, prompt),
+      startAgent: async (agent, prompt) => {
+        if (this.modeManager.isPaused(agent)) {
+          log().info("scheduler", `${agent}: cron deferred (agent is paused)`);
+          return;
+        }
+        this.startAgent(agent, prompt);
+      },
       stopAgent: (agent) => this.stopAgent(agent),
       isAgentActive: (agent) => {
         const state = this.modeManager.getAgentState(agent);
@@ -254,6 +266,11 @@ export class Supervisor {
       this.reloadAgentConfigs();
     }, this.config.supervisor.heartbeatIntervalSeconds * 1000);
     log().info("health", `Heartbeat started (${this.config.supervisor.heartbeatIntervalSeconds}s interval)`);
+
+    if (this.autoPauseOnFocus) {
+      this.focusCheckIntervalId = setInterval(() => this.checkFocusAutoPause(), 5000);
+      log().info("mode", `Auto-pause on focus enabled (resume delay: ${this.autoPauseResumeDelaySeconds}s)`);
+    }
 
     log().info("intelligence", "Stall judge ready (Claude API)");
 
@@ -1181,11 +1198,11 @@ export class Supervisor {
     const report = this.getAgentStatus(name);
     const statusIcon = report.activityStatus === "working" ? "🟢" :
                        report.activityStatus === "stalled" ? "🟡" :
-                       report.activityStatus === "awaiting_approval" ? "🔵" :
-                       report.activityStatus === "wrapping_up" ? "🟠" : "⚪";
+                       report.activityStatus === "awaiting_approval" ? "🔵" : "⚪";
     const modeMap: Record<string, string> = { autonomous: "auto", facilitated: "facil", approve: "approve" };
-    const mode = modeMap[report.autonomy] ?? report.autonomy;
-    const nudge = report.autonomy !== "facilitated" && report.nudgeLevel !== "regular" ? ` [${report.nudgeLevel}]` : "";
+    const pause = this.modeManager.getPauseState(name);
+    const mode = pause?.paused ? `paused←${modeMap[pause.previousAutonomy!] ?? pause.previousAutonomy}` : (modeMap[report.autonomy] ?? report.autonomy);
+    const nudge = !pause?.paused && report.autonomy !== "facilitated" && report.nudgeLevel !== "regular" ? ` [${report.nudgeLevel}]` : "";
     return `  • \`${name}\` — ${statusIcon} ${report.activityStatus} (${mode}${nudge})`;
   }
 
@@ -1234,6 +1251,8 @@ export class Supervisor {
       "`/approve <agent|all>` — approve mode",
       "`/facil <agent|all>` — facilitated mode",
       "`/nudge <agent|all> <low|regular|aggressive>` — nudge level",
+      "`/pause <agent|all>` — temp switch to facilitated, remember previous mode",
+      "`/resume <agent|all>` — restore previous mode",
       "",
       "*Escalations:*",
       "`/queue` — pending items",
@@ -1259,6 +1278,45 @@ export class Supervisor {
     const statusText = `${summary} | ${pending} escalation(s) | ${timeStr}`;
 
     this.workspace.updateWindowTitle(statusText);
+  }
+
+  private checkFocusAutoPause(): void {
+    const focused = this.workspace.getFocusedAgent();
+    log().debug("mode", `Focus check: ${focused ?? "none"}`);
+
+    for (const agent of this.allAgentNames()) {
+      const pause = this.modeManager.getPauseState(agent);
+      const isFocused = focused === agent;
+
+      if (isFocused && !pause?.paused && this.modeManager.getAutonomy(agent) !== "facilitated") {
+        const cooldown = this.autoPauseCooldowns.get(agent);
+        if (cooldown) {
+          clearTimeout(cooldown);
+          this.autoPauseCooldowns.delete(agent);
+          log().debug("mode", `${agent}: cancelled resume cooldown (refocused)`);
+        }
+        this.modeManager.pauseAgent(agent, "auto-focus");
+      } else if (!isFocused && pause?.paused && pause.pausedBy === "auto-focus") {
+        if (!this.autoPauseCooldowns.has(agent)) {
+          log().debug("mode", `${agent}: focus lost, starting ${this.autoPauseResumeDelaySeconds}s resume cooldown`);
+          const timer = setTimeout(() => {
+            this.autoPauseCooldowns.delete(agent);
+            const current = this.modeManager.getPauseState(agent);
+            if (current?.paused && current.pausedBy === "auto-focus") {
+              this.modeManager.resumeAgent(agent);
+            }
+          }, this.autoPauseResumeDelaySeconds * 1000);
+          this.autoPauseCooldowns.set(agent, timer);
+        }
+      } else if (isFocused && pause?.paused && pause.pausedBy === "auto-focus") {
+        const cooldown = this.autoPauseCooldowns.get(agent);
+        if (cooldown) {
+          clearTimeout(cooldown);
+          this.autoPauseCooldowns.delete(agent);
+          log().debug("mode", `${agent}: cancelled resume cooldown (still focused)`);
+        }
+      }
+    }
   }
 
   private allAgentNames(): string[] {
@@ -1474,6 +1532,36 @@ export class Supervisor {
         this.modeManager.setNudgeLevel(nudgeAgent, nudgeLevel);
         log().info("mode", `${nudgeAgent} nudge level → ${nudgeLevel}`);
         return `${nudgeAgent} nudge level set to ${nudgeLevel}.`;
+      }
+
+      case "/pause": {
+        const agent = args.trim();
+        if (!agent) return "Usage: /pause <agent|all>";
+        if (agent === "all") {
+          const agents = this.allAgentNames();
+          const results = agents.map(a => this.modeManager.pauseAgent(a, "manual") ? `${a}: paused` : `${a}: already paused or facilitated`);
+          return results.join("\n");
+        }
+        if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
+        if (this.modeManager.pauseAgent(agent, "manual")) {
+          return `${agent} paused (was ${this.modeManager.getPauseState(agent)?.previousAutonomy}).`;
+        }
+        return `${agent} is already paused or in facilitated mode.`;
+      }
+
+      case "/resume": {
+        const agent = args.trim();
+        if (!agent) return "Usage: /resume <agent|all>";
+        if (agent === "all") {
+          const agents = this.allAgentNames();
+          const results = agents.map(a => this.modeManager.resumeAgent(a) ? `${a}: resumed` : `${a}: not paused`);
+          return results.join("\n");
+        }
+        if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
+        if (this.modeManager.resumeAgent(agent)) {
+          return `${agent} resumed (restored to ${this.modeManager.getAutonomy(agent)}).`;
+        }
+        return `${agent} is not paused.`;
       }
 
       case "/tail": {

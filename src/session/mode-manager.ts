@@ -1,10 +1,11 @@
 import type { StateStore } from "../engine/state-store.js";
-import type { Autonomy, NudgeLevel, ActivityStatus, AgentState } from "./types.js";
+import type { Autonomy, NudgeLevel, ActivityStatus, AgentState, PauseState } from "./types.js";
 import { writeFileSync, readFileSync, existsSync } from "fs";
 import { log } from "../logger.js";
 
 export class ModeManager {
   private agentStates = new Map<string, AgentState>();
+  private pauseStates = new Map<string, PauseState>();
   private stateStore: StateStore;
   private modeStatePath: string;
 
@@ -142,6 +143,45 @@ export class ModeManager {
     return null;
   }
 
+  pauseAgent(agent: string, pausedBy: "manual" | "auto-focus"): boolean {
+    const state = this.agentStates.get(agent);
+    if (!state) return false;
+    const existing = this.pauseStates.get(agent);
+    if (existing?.paused) return false;
+
+    this.pauseStates.set(agent, {
+      paused: true,
+      previousAutonomy: state.autonomy,
+      previousNudgeLevel: state.nudgeLevel,
+      pausedBy,
+    });
+    state.autonomy = "facilitated";
+    this.persistState();
+    log().info("mode", `${agent}: paused (was ${this.pauseStates.get(agent)!.previousAutonomy}, by ${pausedBy})`);
+    return true;
+  }
+
+  resumeAgent(agent: string): boolean {
+    const state = this.agentStates.get(agent);
+    const pause = this.pauseStates.get(agent);
+    if (!state || !pause?.paused) return false;
+
+    state.autonomy = pause.previousAutonomy ?? "facilitated";
+    state.nudgeLevel = pause.previousNudgeLevel ?? "regular";
+    this.pauseStates.set(agent, { paused: false, previousAutonomy: null, previousNudgeLevel: null, pausedBy: null });
+    this.persistState();
+    log().info("mode", `${agent}: resumed (restored to ${state.autonomy})`);
+    return true;
+  }
+
+  isPaused(agent: string): boolean {
+    return this.pauseStates.get(agent)?.paused ?? false;
+  }
+
+  getPauseState(agent: string): PauseState | undefined {
+    return this.pauseStates.get(agent);
+  }
+
   getAllAgentStates(): AgentState[] {
     return Array.from(this.agentStates.values());
   }
@@ -152,11 +192,11 @@ export class ModeManager {
     for (const state of this.agentStates.values()) {
       const statusIcon = state.activityStatus === "working" ? "🟢" :
                          state.activityStatus === "stalled" ? "🟡" :
-                         state.activityStatus === "awaiting_approval" ? "🔵" :
-                         state.activityStatus === "wrapping_up" ? "🟠" : "⚪";
+                         state.activityStatus === "awaiting_approval" ? "🔵" : "⚪";
       const modeMap: Record<string, string> = { autonomous: "auto", facilitated: "facil", approve: "approve" };
-      const mode = modeMap[state.autonomy] ?? state.autonomy;
-      const nudge = state.autonomy !== "facilitated" && state.nudgeLevel !== "regular" ? `,${state.nudgeLevel}` : "";
+      const pause = this.pauseStates.get(state.agent);
+      const mode = pause?.paused ? `paused←${modeMap[pause.previousAutonomy!] ?? pause.previousAutonomy}` : (modeMap[state.autonomy] ?? state.autonomy);
+      const nudge = !pause?.paused && state.autonomy !== "facilitated" && state.nudgeLevel !== "regular" ? `,${state.nudgeLevel}` : "";
       lines.push(`${state.agent}: ${statusIcon} ${state.activityStatus} (${mode}${nudge})`);
     }
 
