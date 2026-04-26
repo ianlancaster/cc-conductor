@@ -31,8 +31,6 @@ export class Scheduler {
   private fileMtimes = new Map<string, number>();
   private heartbeatCount = 0;
   private reloadIntervalBeats = 10;
-  private lastCheckTime = new Date();
-
   constructor(options: SchedulerOptions) {
     this.options = options;
   }
@@ -48,7 +46,7 @@ export class Scheduler {
       for (const entry of s.schedules) {
         const label = entry.label ? ` [${entry.label}]` : "";
         const paused = entry.paused ? " (PAUSED)" : "";
-        log().debug("scheduler", `  ${s.agent}${label}: ${entry.cron}${paused} → ${entry.prompt.slice(0, 60)}`);
+        log().debug("scheduler", `  ${s.agent}${label}: ${entry.cron}${paused}`);
       }
     }
   }
@@ -61,14 +59,6 @@ export class Scheduler {
     }
 
     const now = new Date();
-    const gap = now.getTime() - this.lastCheckTime.getTime();
-
-    if (gap > 120_000) {
-      log().warn("scheduler", `Detected ${Math.round(gap / 60000)}m gap (Mac was asleep?) — checking for missed schedules`);
-      this.fireMissedSchedules(this.lastCheckTime, now);
-    }
-
-    this.lastCheckTime = now;
     const key = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
 
     for (const agentSched of this.agentSchedules) {
@@ -116,31 +106,6 @@ export class Scheduler {
       log().warn("scheduler", `${agent}${label}: stopAgent failed (may not have been running), proceeding with start`);
     }
     await this.options.startAgent(agent, entry.prompt);
-  }
-
-  private fireMissedSchedules(from: Date, to: Date): void {
-    const cursor = new Date(from);
-    cursor.setSeconds(0, 0);
-    cursor.setMinutes(cursor.getMinutes() + 1);
-
-    while (cursor < to) {
-      for (const agentSched of this.agentSchedules) {
-        for (const entry of agentSched.schedules) {
-          if (entry.paused) continue;
-          if (!this.matchesCron(entry.cron, cursor)) continue;
-
-          const label = entry.label ? ` [${entry.label}]` : "";
-          log().info("scheduler", `${agentSched.agent}${label}: firing MISSED schedule (was due ${cursor.toLocaleTimeString()})`);
-
-          if (entry.freshSession) {
-            this.fireWithFreshSession(agentSched.agent, entry);
-          } else {
-            this.options.startAgent(agentSched.agent, entry.prompt);
-          }
-        }
-      }
-      cursor.setMinutes(cursor.getMinutes() + 1);
-    }
   }
 
   private reloadIfChanged(): void {

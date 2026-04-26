@@ -76,11 +76,10 @@ export class Supervisor {
     this.permissionEngine = new PermissionEngine();
 
     const agentNames = Object.keys(this.config.agents);
-    log().info("supervisor", `Agents configured: ${agentNames.join(", ")}`, { count: agentNames.length });
+    log().info("supervisor", `Agents configured: ${agentNames.join(", ")}`);
 
     const modeStatePath = resolve(baseDir, "data", "mode-state.json");
     this.modeManager = new ModeManager(this.stateStore, agentNames, modeStatePath);
-    log().info("supervisor", `Agents configured: ${agentNames.length}`);
 
     const itermConfig = (this.config as Record<string, unknown>).iterm as Record<string, unknown> | undefined;
     this.workspace = new IterminalWorkspace({
