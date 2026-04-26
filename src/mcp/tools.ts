@@ -16,6 +16,7 @@ export type McpToolDeps = {
   continueAgent: (codename: string) => Promise<void>;
   setAutonomy: (codename: string, autonomy: "autonomous" | "facilitated" | "approve") => void;
   sendToAgent: (codename: string, message: string) => Promise<void>;
+  typeInPane: (codename: string, text: string) => void;
 
   // Context management
   requestContext: (agentCodename: string) => Promise<string>;
@@ -439,6 +440,31 @@ export function buildMcpTools(deps: McpToolDeps): Record<
         if (!deps.agentExists(codename)) return `Error: unknown agent '${codename}'`;
         deps.setNudgeLevel(codename, level);
         return `${codename} nudge level set to ${level}.`;
+      },
+    },
+
+    type_in_pane: {
+      description:
+        "Type raw text into another agent's terminal pane with no envelope or formatting. Use this for answering numbered prompts (1/2/3), typing slash commands, or any situation where the [Message from] envelope would corrupt the input. For normal messages, use send_to_agent instead.",
+      inputSchema: {
+        from: { type: "string", description: "Your agent codename (the caller)" },
+        codename: { type: "string", description: "Agent codename to type into" },
+        text: { type: "string", description: "Raw text to type — sent exactly as-is with no wrapping" },
+      },
+      handler: async (args) => {
+        const from = args.from as string;
+        const codename = args.codename as string;
+        const text = args.text as string;
+        const err =
+          requireArg(from, "from") ||
+          requireArg(codename, "codename") ||
+          requireArg(text, "text");
+        if (err) return err;
+        if (!deps.agentExists(codename)) return `Error: unknown agent '${codename}'`;
+        const gate = deps.checkOrchestrationPolicy(from, "send", codename);
+        if (!gate.allowed) return `Error: ${gate.reason}`;
+        deps.typeInPane(codename, text);
+        return `Typed into ${codename}'s pane.`;
       },
     },
   };
