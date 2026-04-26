@@ -298,6 +298,11 @@ export class Supervisor {
       return;
     }
 
+    // Liveness check: if we have a stale pane mapping, clear it so a fresh pane is created
+    if (this.workspace.hasAgent(agentName) && !this.workspace.isPaneAlive(agentName)) {
+      log().info("session", `${agentName}: stale pane mapping cleared`);
+    }
+
     const cognitive = existsSync(join(policy.repo, ".cognitive-agent"));
     this.modeManager.setCognitive(agentName, cognitive);
 
