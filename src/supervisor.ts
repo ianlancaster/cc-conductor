@@ -268,8 +268,7 @@ export class Supervisor {
     log().info("health", `Heartbeat started (${this.config.supervisor.heartbeatIntervalSeconds}s interval)`);
 
     if (this.autoPauseOnFocus) {
-      this.focusCheckIntervalId = setInterval(() => this.checkFocusAutoPause(), 5000);
-      log().info("mode", `Auto-pause on focus enabled (resume delay: ${this.autoPauseResumeDelaySeconds}s)`);
+      this.startFocusCheck();
     }
 
     log().info("intelligence", "Stall judge ready (Claude API)");
@@ -1253,6 +1252,7 @@ export class Supervisor {
       "`/nudge <agent|all> <low|regular|aggressive>` — nudge level",
       "`/pause <agent|all>` — temp switch to facilitated, remember previous mode",
       "`/resume <agent|all>` — restore previous mode",
+      "`/autopause [on|off]` — auto-pause agents when their pane is focused",
       "",
       "*Escalations:*",
       "`/queue` — pending items",
@@ -1293,16 +1293,17 @@ export class Supervisor {
         if (cooldown) {
           clearTimeout(cooldown);
           this.autoPauseCooldowns.delete(agent);
-          log().debug("mode", `${agent}: cancelled resume cooldown (refocused)`);
         }
+        log().info("mode", `${agent}: operator focused — auto-pausing (was ${this.modeManager.getAutonomy(agent)})`);
         this.modeManager.pauseAgent(agent, "auto-focus");
       } else if (!isFocused && pause?.paused && pause.pausedBy === "auto-focus") {
         if (!this.autoPauseCooldowns.has(agent)) {
-          log().debug("mode", `${agent}: focus lost, starting ${this.autoPauseResumeDelaySeconds}s resume cooldown`);
+          log().info("mode", `${agent}: operator unfocused — resuming in ${this.autoPauseResumeDelaySeconds}s`);
           const timer = setTimeout(() => {
             this.autoPauseCooldowns.delete(agent);
             const current = this.modeManager.getPauseState(agent);
             if (current?.paused && current.pausedBy === "auto-focus") {
+              log().info("mode", `${agent}: auto-resume cooldown expired — restoring ${current.previousAutonomy}`);
               this.modeManager.resumeAgent(agent);
             }
           }, this.autoPauseResumeDelaySeconds * 1000);
@@ -1313,10 +1314,32 @@ export class Supervisor {
         if (cooldown) {
           clearTimeout(cooldown);
           this.autoPauseCooldowns.delete(agent);
-          log().debug("mode", `${agent}: cancelled resume cooldown (still focused)`);
+          log().info("mode", `${agent}: operator refocused — cancelled resume cooldown`);
         }
       }
     }
+  }
+
+  private startFocusCheck(): void {
+    if (this.focusCheckIntervalId) return;
+    this.focusCheckIntervalId = setInterval(() => this.checkFocusAutoPause(), 5000);
+    log().info("mode", `Auto-pause on focus enabled (resume delay: ${this.autoPauseResumeDelaySeconds}s)`);
+  }
+
+  private stopFocusCheck(): void {
+    if (this.focusCheckIntervalId) {
+      clearInterval(this.focusCheckIntervalId);
+      this.focusCheckIntervalId = null;
+    }
+    for (const [agent, timer] of this.autoPauseCooldowns.entries()) {
+      clearTimeout(timer);
+      const pause = this.modeManager.getPauseState(agent);
+      if (pause?.paused && pause.pausedBy === "auto-focus") {
+        this.modeManager.resumeAgent(agent);
+      }
+    }
+    this.autoPauseCooldowns.clear();
+    log().info("mode", "Auto-pause on focus disabled — all auto-paused agents resumed");
   }
 
   private allAgentNames(): string[] {
@@ -1532,6 +1555,20 @@ export class Supervisor {
         this.modeManager.setNudgeLevel(nudgeAgent, nudgeLevel);
         log().info("mode", `${nudgeAgent} nudge level → ${nudgeLevel}`);
         return `${nudgeAgent} nudge level set to ${nudgeLevel}.`;
+      }
+
+      case "/autopause": {
+        const arg = args.trim().toLowerCase();
+        if (arg === "on") {
+          this.autoPauseOnFocus = true;
+          this.startFocusCheck();
+          return "Auto-pause on focus: ON";
+        } else if (arg === "off") {
+          this.autoPauseOnFocus = false;
+          this.stopFocusCheck();
+          return "Auto-pause on focus: OFF";
+        }
+        return `Auto-pause on focus: ${this.autoPauseOnFocus ? "ON" : "OFF"}. Usage: /autopause <on|off>`;
       }
 
       case "/pause": {
