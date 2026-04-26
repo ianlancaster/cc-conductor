@@ -78,7 +78,8 @@ export class Supervisor {
     const agentNames = Object.keys(this.config.agents);
     log().info("supervisor", `Agents configured: ${agentNames.join(", ")}`, { count: agentNames.length });
 
-    this.modeManager = new ModeManager(this.stateStore, agentNames);
+    const modeStatePath = resolve(baseDir, "data", "mode-state.json");
+    this.modeManager = new ModeManager(this.stateStore, agentNames, modeStatePath);
     log().info("supervisor", `Agents configured: ${agentNames.length}`);
 
     const itermConfig = (this.config as Record<string, unknown>).iterm as Record<string, unknown> | undefined;
@@ -118,6 +119,7 @@ export class Supervisor {
         });
       },
       onStall: (agent, paneContent) => {
+        if (this.modeManager.getAutonomy(agent) === "facilitated") return;
         this.handleStallDetection(agent, paneContent);
       },
       onWorking: (agent) => {
@@ -1017,7 +1019,7 @@ export class Supervisor {
                        report.activityStatus === "wrapping_up" ? "🟠" : "⚪";
     const modeMap: Record<string, string> = { autonomous: "auto", facilitated: "facil", approve: "approve" };
     const mode = modeMap[report.autonomy] ?? report.autonomy;
-    const nudge = report.nudgeLevel !== "regular" ? ` [${report.nudgeLevel}]` : "";
+    const nudge = report.autonomy !== "facilitated" && report.nudgeLevel !== "regular" ? ` [${report.nudgeLevel}]` : "";
     return `  • \`${name}\` — ${statusIcon} ${report.activityStatus} (${mode}${nudge})`;
   }
 

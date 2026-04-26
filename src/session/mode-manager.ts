@@ -1,12 +1,16 @@
 import type { StateStore } from "../engine/state-store.js";
 import type { Autonomy, NudgeLevel, ActivityStatus, AgentState } from "./types.js";
+import { writeFileSync, readFileSync, existsSync } from "fs";
+import { log } from "../logger.js";
 
 export class ModeManager {
   private agentStates = new Map<string, AgentState>();
   private stateStore: StateStore;
+  private modeStatePath: string;
 
-  constructor(stateStore: StateStore, agents: string[]) {
+  constructor(stateStore: StateStore, agents: string[], modeStatePath: string) {
     this.stateStore = stateStore;
+    this.modeStatePath = modeStatePath;
 
     for (const agent of agents) {
       this.agentStates.set(agent, {
@@ -152,7 +156,7 @@ export class ModeManager {
                          state.activityStatus === "wrapping_up" ? "🟠" : "⚪";
       const modeMap: Record<string, string> = { autonomous: "auto", facilitated: "facil", approve: "approve" };
       const mode = modeMap[state.autonomy] ?? state.autonomy;
-      const nudge = state.nudgeLevel !== "regular" ? `,${state.nudgeLevel}` : "";
+      const nudge = state.autonomy !== "facilitated" && state.nudgeLevel !== "regular" ? `,${state.nudgeLevel}` : "";
       lines.push(`${state.agent}: ${statusIcon} ${state.activityStatus} (${mode}${nudge})`);
     }
 
@@ -174,20 +178,19 @@ export class ModeManager {
       ),
     };
 
-    this.stateStore.logHealthEvent(
-      "conductor",
-      "mode_state_saved",
-      JSON.stringify(data)
-    );
+    try {
+      writeFileSync(this.modeStatePath, JSON.stringify(data, null, 2), "utf-8");
+    } catch (err) {
+      log().warn("mode", `Failed to persist mode state: ${String(err)}`);
+    }
   }
 
   private loadPersistedState(): void {
-    const events = this.stateStore.getHealthLog("conductor", 1);
-    const latest = events.find((e) => e.event === "mode_state_saved");
-    if (!latest?.detail) return;
+    if (!existsSync(this.modeStatePath)) return;
 
     try {
-      const data = JSON.parse(latest.detail) as {
+      const raw = readFileSync(this.modeStatePath, "utf-8");
+      const data = JSON.parse(raw) as {
         agents: Record<string, {
           autonomy: Autonomy;
           nudgeLevel?: NudgeLevel;
@@ -204,8 +207,9 @@ export class ModeManager {
           state.autoStartedAt = settings.autoStartedAt ?? null;
         }
       }
-    } catch {
-      // Corrupted state — use defaults
+      log().info("mode", `Loaded persisted mode state for ${Object.keys(data.agents).length} agents`);
+    } catch (err) {
+      log().warn("mode", `Failed to load mode state (using defaults): ${String(err)}`);
     }
   }
 }
