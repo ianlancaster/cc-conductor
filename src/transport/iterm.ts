@@ -118,6 +118,10 @@ export class IterminalWorkspace {
     this.windowId = parseInt(stdout.trim(), 10);
     this.persistState();
     log().info("iterm", `Window created: id=${this.windowId}`);
+
+    // iTerm2 needs a moment after window creation before the window ID
+    // is addressable via AppleScript in subsequent calls.
+    execSync("sleep 1");
   }
 
   runInPrimaryPane(command: string): void {
