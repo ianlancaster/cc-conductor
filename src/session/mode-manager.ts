@@ -61,6 +61,11 @@ export class ModeManager {
     const state = this.agentStates.get(agent);
     if (state) {
       state.autonomy = autonomy;
+      const pause = this.pauseStates.get(agent);
+      if (pause?.paused) {
+        this.pauseStates.set(agent, { paused: false, previousAutonomy: null, previousNudgeLevel: null, pausedBy: null });
+        log().info("mode", `${agent}: pause cleared (manual mode change while paused)`);
+      }
       this.persistState();
     }
   }
