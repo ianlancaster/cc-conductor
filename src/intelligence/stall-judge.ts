@@ -113,38 +113,23 @@ export type NumberedOptionResponse = {
   detected: false;
 };
 
-const MEMORY_PROMPT_RE = /^\s*\?\s.*[Mm]emor/m;
-const PERMISSION_PROMPT_RE = /^\s*\?\s.*[Pp]ermission/m;
-const FILE_CREATE_PROMPT_RE = /Do you want to (?:create|write|edit|update)\s/m;
-const NUMBERED_OPTIONS_RE = /^\s*(?:❯?\s*\d+[\.\)]\s+.+\n?){2,}/m;
+const SETTINGS_EDIT_OPTION_RE = /Yes,?\s+and\s+allow\s+Claude\s+to\s+edit\s+its\s+own\s+settings/i;
 
 export function detectNumberedOptions(
   paneContent: string,
-  autoResponses: { memoryPrompts: number | null; permissionPrompts: number | null; unknownNumbered: number | null },
+  _autoResponses: { memoryPrompts: number | null; permissionPrompts: number | null; unknownNumbered: number | null },
 ): NumberedOptionResponse {
   const cleaned = stripTerminalChrome(paneContent);
   if (!cleaned) return { detected: false };
 
-  if (MEMORY_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
-    if (autoResponses.memoryPrompts !== null) {
-      return { detected: true, response: String(autoResponses.memoryPrompts), pattern: "memory" };
-    }
-  }
+  const optionLines = cleaned.match(/^\s*(?:❯?\s*)?(\d+)\.\s+(.+)/gm);
+  if (!optionLines || optionLines.length < 2) return { detected: false };
 
-  if (PERMISSION_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
-    if (autoResponses.permissionPrompts !== null) {
-      return { detected: true, response: String(autoResponses.permissionPrompts), pattern: "permission" };
+  for (const line of optionLines) {
+    const match = line.match(/(\d+)\.\s+(.+)/);
+    if (match && SETTINGS_EDIT_OPTION_RE.test(match[2])) {
+      return { detected: true, response: match[1], pattern: "settings_permission" };
     }
-  }
-
-  if (FILE_CREATE_PROMPT_RE.test(cleaned) && NUMBERED_OPTIONS_RE.test(cleaned)) {
-    if (autoResponses.permissionPrompts !== null) {
-      return { detected: true, response: String(autoResponses.permissionPrompts), pattern: "file_create" };
-    }
-  }
-
-  if (NUMBERED_OPTIONS_RE.test(cleaned) && autoResponses.unknownNumbered !== null) {
-    return { detected: true, response: String(autoResponses.unknownNumbered), pattern: "unknown" };
   }
 
   return { detected: false };
