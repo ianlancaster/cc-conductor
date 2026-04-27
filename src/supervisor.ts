@@ -90,6 +90,7 @@ export class Supervisor {
     this.workspace = new IterminalWorkspace({
       windowName: (itermConfig?.windowName as string) ?? "Agent Conductor",
       statePath: resolve(baseDir, "data", "workspace.json"),
+      baseDir,
     });
 
     this.stallJudge = new StallJudge(this.config.intelligence.stallJudgeModel);
@@ -871,7 +872,7 @@ export class Supervisor {
     setTimeout(() => {
       try {
         // Run the CLI client script in the primary (first) pane of the conductor window
-        this.workspace.runInPrimaryPane(`node ${scriptPath} ${port}`);
+        this.workspace.runInPrimaryPane(`cd "${this.baseDir}" && node ${scriptPath} ${port}`);
         log().info("supervisor", "CLI client launched in primary pane");
       } catch (err) {
         log().warn("supervisor", `Failed to launch CLI in primary pane: ${String(err)}`);
