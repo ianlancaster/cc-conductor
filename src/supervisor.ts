@@ -129,7 +129,6 @@ export class Supervisor {
         });
       },
       onStall: (agent, paneContent) => {
-        if (this.modeManager.getAutonomy(agent) === "facilitated") return;
         this.handleStallDetection(agent, paneContent);
       },
       onWorking: (agent) => {
