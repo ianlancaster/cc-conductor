@@ -748,18 +748,15 @@ export class Supervisor {
     return `Spawned ${codename} at ${agentDir} (${model})${promptNote}.`;
   }
 
-  async spawnCognitiveAgent(codename: string, opts?: {
-    model?: string;
-    templateUrl?: string;
-  }): Promise<string> {
+  async spawnCognitiveAgent(codename: string): Promise<string> {
     if (this.config.agents[codename]) {
       return `Error: agent '${codename}' already exists.`;
     }
 
     const agentsRoot = resolve(this.baseDir, "..");
     const agentDir = resolve(agentsRoot, `agent-${codename}`);
-    const model = opts?.model ?? "claude-sonnet-4-6";
-    const templateUrl = opts?.templateUrl ?? "https://github.com/ianlancaster/cognitive-agent-template.git";
+    const model = "claude-opus-4-6";
+    const templateUrl = "https://github.com/ianlancaster/cognitive-agent-template.git";
 
     if (existsSync(agentDir)) {
       return `Error: directory already exists: ${agentDir}`;
@@ -1318,7 +1315,7 @@ export class Supervisor {
       "",
       "*Lifecycle:*",
       "`/spawn <name> [--path p] [--model m] [--prompt \"p\"]` — create bare agent + start",
-      "`/spawn-agent <name> [--model m]` — clone cognitive template + /awaken",
+      "`/spawn-agent <name>` — clone cognitive template + /awaken",
       "`/teardown <name> [--delete]` — stop + deregister (--delete removes dir)",
       "",
       "*Modes:*",
@@ -1599,16 +1596,9 @@ export class Supervisor {
       }
 
       case "/spawn-agent": {
-        const saArgs = args.trim();
-        if (!saArgs) return "Usage: /spawn-agent <codename> [--model model]";
-        const saParts = saArgs.match(/^(\S+)(.*)/);
-        if (!saParts) return "Usage: /spawn-agent <codename> [--model model]";
-        const saCodename = saParts[1];
-        const saModelMatch = saParts[2].match(/--model\s+(\S+)/);
-        const saResult = await this.spawnCognitiveAgent(saCodename, {
-          model: saModelMatch?.[1],
-        });
-        return saResult;
+        const saCodename = args.trim();
+        if (!saCodename) return "Usage: /spawn-agent <codename>";
+        return this.spawnCognitiveAgent(saCodename);
       }
 
       case "/teardown": {
