@@ -696,7 +696,7 @@ export class Supervisor {
     }
 
     const agentDir = opts?.path ?? resolve(this.baseDir, "..", codename);
-    const model = opts?.model ?? "claude-sonnet-4-6";
+    const model = opts?.model ?? this.config.claudeCode.defaultModel;
 
     // Create directory if needed
     if (!existsSync(agentDir)) {
@@ -756,7 +756,7 @@ export class Supervisor {
 
     const agentsRoot = resolve(this.baseDir, "..");
     const agentDir = resolve(agentsRoot, `agent-${codename}`);
-    const model = "claude-opus-4-6";
+    const model = this.config.claudeCode.defaultModel;
     const templateUrl = "https://github.com/ianlancaster/cognitive-agent-template.git";
 
     if (existsSync(agentDir)) {
