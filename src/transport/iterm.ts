@@ -10,6 +10,8 @@ export type IterminalConfig = {
   // restarts. Without this, every `make start` would orphan the previous
   // window and create a fresh one.
   statePath: string;
+  // Working directory for the conductor CLI and system panes.
+  baseDir: string;
   // Number of trailing lines to return from capturePane when no explicit count
   // is provided.
   defaultTailLines?: number;
@@ -46,6 +48,7 @@ export class IterminalWorkspace {
   private windowName: string;
   private windowId: number | null = null;
   private statePath: string;
+  private baseDir: string;
   private agentPanes = new Map<string, PaneInfo>();
   private systemPaneId: string | null = null;
   private primaryPaneId: string | null = null;
@@ -54,6 +57,7 @@ export class IterminalWorkspace {
   constructor(config: IterminalConfig) {
     this.windowName = config.windowName;
     this.statePath = config.statePath;
+    this.baseDir = config.baseDir;
     this.tmpDir = mkdtempSync(join(tmpdir(), "conductor-iterm-"));
     this.loadPersistedState();
   }
@@ -437,10 +441,9 @@ export class IterminalWorkspace {
     `);
     this.systemPaneId = stdout.trim();
 
-    // Wait for shell init, then launch claude interactively
     setTimeout(() => {
       if (!this.systemPaneId) return;
-      this.writeTextLine(this.systemPaneId, "claude --dangerously-skip-permissions");
+      this.writeTextLine(this.systemPaneId, `cd "${this.baseDir}" && claude --dangerously-skip-permissions`);
     }, 3000);
 
     this.persistState();
