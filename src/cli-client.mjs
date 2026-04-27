@@ -44,6 +44,7 @@ rl.on("line", async (line) => {
   const trimmed = line.trim();
   if (!trimmed) { rl.prompt(); return; }
   if (trimmed === "exit" || trimmed === "quit") { process.exit(0); }
+  if (trimmed === "/c") { console.clear(); rl.prompt(); return; }
 
   const response = await sendCommand(trimmed);
   if (response) console.log(response);
