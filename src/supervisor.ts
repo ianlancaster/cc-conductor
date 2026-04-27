@@ -46,6 +46,7 @@ export class Supervisor {
   private mcpServer: ConductorMcpServer;
   private agentSessions = new Map<string, AgentSession>();
   private pendingCustomReplyId: number | null = null;
+  private lastStallRouteTime = new Map<string, number>();
   private pendingApprovals = new Map<number, {
     agent: string;
     action: "send_to_agent" | "respond_to_user";
@@ -83,6 +84,10 @@ export class Supervisor {
 
     const modeStatePath = resolve(baseDir, "data", "mode-state.json");
     this.modeManager = new ModeManager(this.stateStore, agentNames, modeStatePath);
+
+    for (const [name, policy] of Object.entries(this.config.agents)) {
+      this.modeManager.setCognitive(name, existsSync(join(policy.repo, ".cognitive-agent")));
+    }
 
     const itermConfig = (this.config as Record<string, unknown>).iterm as Record<string, unknown> | undefined;
     this.autoPauseOnFocus = (itermConfig?.autoPauseOnFocus as boolean) ?? false;
@@ -132,6 +137,9 @@ export class Supervisor {
       },
       onStall: (agent, paneContent) => {
         this.handleStallDetection(agent, paneContent);
+      },
+      onStalled: (agent) => {
+        this.modeManager.setActivityStatus(agent, "stalled");
       },
       onWorking: (agent) => {
         this.modeManager.setActivityStatus(agent, "working");
