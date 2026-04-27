@@ -23,12 +23,11 @@ export type AgentStatusReport = {
   status: "active" | "idle";
   autonomy: "autonomous" | "facilitated" | "approve";
   nudgeLevel: "low" | "regular" | "aggressive";
-  activityStatus: "working" | "stalled" | "awaiting_approval" | "wrapping_up" | "stopped";
+  activityStatus: "working" | "stalled" | "awaiting_approval" | "stopped";
   cognitive: boolean;
   sessionId: string | null;
   startedAt: string | null;
   lastActivityAt: string | null;
-  stallCount: number;
   pendingEscalations: number;
 };
 
@@ -457,7 +456,6 @@ export class Supervisor {
     }
 
     const correctedState = this.modeManager.getAgentState(agentName);
-    const stallCount = this.healthMonitor.getStallCount(agentName);
     const lastActivityAt = null;
     const pendingEscalations = this.stateStore
       .getPendingEscalations()
@@ -495,7 +493,6 @@ export class Supervisor {
       sessionId: state?.sessionId ?? null,
       startedAt: null,
       lastActivityAt,
-      stallCount,
       pendingEscalations,
     };
   }
