@@ -1358,12 +1358,7 @@ export class Supervisor {
   }
 
   private updateStatus(): void {
-    const summary = this.modeManager.getStatusSummary();
-    const pending = this.stateStore.getPendingEscalations().length;
-    const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false, timeZone: "America/Denver" });
-    const statusText = `${summary} | ${pending} escalation(s) | ${timeStr}`;
-
-    this.workspace.updateWindowTitle(statusText);
+    // Status available via /status command — keep window title clean
   }
 
   private lastFocusedAgent: string | null = null;
