@@ -103,6 +103,7 @@ export class Supervisor {
         this.startAgent(agent, prompt);
       },
       stopAgent: (agent) => this.stopAgent(agent),
+      sendToPane: (agent, message) => this.workspace.runInPane(agent, message),
       isAgentActive: (agent) => {
         const state = this.modeManager.getAgentState(agent);
         return !!state?.sessionActive && this.workspace.isPaneAlive(agent);
