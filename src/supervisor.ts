@@ -1282,7 +1282,7 @@ export class Supervisor {
     return `  • \`${name}\` — ${statusIcon} ${report.activityStatus} (${mode}${nudge})`;
   }
 
-  private buildWelcomeMessage(): string {
+  private buildStatusMessage(): string {
     const allNames = Object.keys(this.config.agents);
     const pending = this.stateStore.getPendingEscalations().length;
 
@@ -1302,12 +1302,16 @@ export class Supervisor {
     }
 
     return [
-      "*Agent Conductor — Welcome*",
+      "*Agent Conductor — Status*",
       "",
       `Escalations pending: ${pending}`,
       "",
       ...sections,
-      "",
+    ].join("\n");
+  }
+
+  private buildHelpMessage(): string {
+    return [
       "*Commands:*",
       "`/status` — agent overview",
       "`/start <agent|all>` — start a session",
@@ -1347,6 +1351,10 @@ export class Supervisor {
       "_Use `all` in place of agent name to target every agent._",
       "_\"yes\"/\"no\" to approve/deny when there's one pending escalation._",
     ].join("\n");
+  }
+
+  private buildWelcomeMessage(): string {
+    return this.buildStatusMessage() + "\n\n" + this.buildHelpMessage();
   }
 
   private updateStatus(): void {
@@ -1442,7 +1450,7 @@ export class Supervisor {
 
     switch (command) {
       case "/help":
-        return this.buildWelcomeMessage();
+        return this.buildHelpMessage();
 
       case "/status": {
         const statusAgent = args.trim();
@@ -1450,7 +1458,7 @@ export class Supervisor {
           const report = this.getAgentStatus(statusAgent);
           return JSON.stringify(report, null, 2);
         }
-        return this.buildWelcomeMessage();
+        return this.buildStatusMessage();
       }
 
       case "/broadcast": {
