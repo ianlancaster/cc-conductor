@@ -748,6 +748,80 @@ export class Supervisor {
     return `Spawned ${codename} at ${agentDir} (${model})${promptNote}.`;
   }
 
+  async spawnCognitiveAgent(codename: string, opts?: {
+    model?: string;
+    templateUrl?: string;
+  }): Promise<string> {
+    if (this.config.agents[codename]) {
+      return `Error: agent '${codename}' already exists.`;
+    }
+
+    const agentsRoot = resolve(this.baseDir, "..");
+    const agentDir = resolve(agentsRoot, `agent-${codename}`);
+    const model = opts?.model ?? "claude-sonnet-4-6";
+    const templateUrl = opts?.templateUrl ?? "https://github.com/ianlancaster/cognitive-agent-template.git";
+
+    if (existsSync(agentDir)) {
+      return `Error: directory already exists: ${agentDir}`;
+    }
+
+    log().info("spawn", `Cloning cognitive template for ${codename}...`);
+    try {
+      const { execSync } = await import("child_process");
+      execSync(`git clone ${templateUrl} ${agentDir}`, { encoding: "utf-8", timeout: 30000 });
+    } catch (err) {
+      return `Error: failed to clone template: ${String(err)}`;
+    }
+
+    try {
+      const { execSync } = await import("child_process");
+      execSync(`git -C ${agentDir} remote remove origin`, { encoding: "utf-8" });
+      execSync(`git -C ${agentDir} remote add origin https://github.com/ianlancaster/agent-${codename}.git`, { encoding: "utf-8" });
+    } catch {
+      log().warn("spawn", `${codename}: failed to update git remote (non-fatal)`);
+    }
+
+    const yamlContent = [
+      `agent: ${codename}`,
+      `codename: ${codename}`,
+      `repo: ${agentDir}`,
+      `model: ${model}`,
+      `maxTurns: 100`,
+      ``,
+      `autoApprove:`,
+      `  tools: [Read, Edit, Write, Bash, Agent]`,
+      `  paths:`,
+      `    write: ["**"]`,
+      `    read: ["**"]`,
+      `  bash:`,
+      `    allow: ["git *", "ls *", "cat *", "echo *", "node *", "pnpm *", "python3 *", "find *", "grep *"]`,
+      `    deny: ["rm -rf /*", "sudo *"]`,
+      ``,
+      `escalateAlways: []`,
+      ``,
+      `peerAccess:`,
+      `  canConsult: []`,
+      `  canReceiveFrom: []`,
+    ].join("\n");
+
+    const configPath = resolve(this.agentsDir, `${codename}.yaml`);
+    writeFileSync(configPath, yamlContent, "utf-8");
+    log().info("spawn", `Config written: ${configPath}`);
+
+    const { loadAgentConfigs } = await import("./config.js");
+    const freshAgents = loadAgentConfigs(this.agentsDir);
+    const policy = freshAgents[codename];
+    if (!policy) {
+      return `Error: failed to load config for '${codename}' after writing.`;
+    }
+    this.config.agents[codename] = policy;
+    this.modeManager.addAgent(codename);
+
+    await this.startAgent(codename, "/awaken");
+
+    return `Spawned cognitive agent ${codename} at ${agentDir} (${model}). Running /awaken.`;
+  }
+
   async teardownAgent(codename: string, deleteDir: boolean = false): Promise<string> {
     const policy = this.config.agents[codename];
     if (!policy) {
@@ -1243,7 +1317,8 @@ export class Supervisor {
       "`/broadcast <msg>` — send message to all active agents",
       "",
       "*Lifecycle:*",
-      "`/spawn <name> [--path p] [--model m] [--prompt \"p\"]` — create + start",
+      "`/spawn <name> [--path p] [--model m] [--prompt \"p\"]` — create bare agent + start",
+      "`/spawn-agent <name> [--model m]` — clone cognitive template + /awaken",
       "`/teardown <name> [--delete]` — stop + deregister (--delete removes dir)",
       "",
       "*Modes:*",
@@ -1521,6 +1596,19 @@ export class Supervisor {
           prompt: promptMatch?.[1],
         });
         return result;
+      }
+
+      case "/spawn-agent": {
+        const saArgs = args.trim();
+        if (!saArgs) return "Usage: /spawn-agent <codename> [--model model]";
+        const saParts = saArgs.match(/^(\S+)(.*)/);
+        if (!saParts) return "Usage: /spawn-agent <codename> [--model model]";
+        const saCodename = saParts[1];
+        const saModelMatch = saParts[2].match(/--model\s+(\S+)/);
+        const saResult = await this.spawnCognitiveAgent(saCodename, {
+          model: saModelMatch?.[1],
+        });
+        return saResult;
       }
 
       case "/teardown": {
