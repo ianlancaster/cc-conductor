@@ -926,25 +926,21 @@ export class Supervisor {
     const autonomy = this.modeManager.getAutonomy(agent);
     const nudgeLevel = this.modeManager.getNudgeLevel(agent);
 
-    // 0. Facilitated mode: operator is driving, ignore ALL stalls.
-    // This check MUST be first — facilitated agents should never receive
-    // auto-responses, compaction nudges, or post-sleep restarts from the conductor.
+    // 1. Numbered option detection — runs for ALL agents regardless of mode.
+    const optionCheck = detectNumberedOptions(captured, this.config.autoResponses);
+    if (optionCheck.detected) {
+      log().info("health", `${agent}: numbered option detected (${optionCheck.pattern}), responding: ${optionCheck.response}`);
+      this.workspace.runInPane(agent, optionCheck.response);
+      return;
+    }
+
+    // 2. Facilitated mode: operator is driving, ignore stalls (but numbered options above still get handled).
     if (autonomy === "facilitated") {
       log().debug("health", `${agent}: idle at prompt (facilitated) — not a stall`);
       return;
     }
 
-    // 1. Numbered option detection (memory prompts, permission prompts, etc.)
-    // These block agents completely. Respond with bare number, no prefix.
-    const optionCheck = detectNumberedOptions(captured, this.config.autoResponses);
-    if (optionCheck.detected) {
-      log().info("health", `${agent}: numbered option detected (${optionCheck.pattern}), responding: ${optionCheck.response}`);
-      this.workspace.runInPane(agent, optionCheck.response);
-      this.telegram?.send(`🔢 *${agent}* — auto-responded to ${optionCheck.pattern} prompt with "${optionCheck.response}"`);
-      return;
-    }
-
-    // 2. Post-sleep detection (cognitive agents only)
+    // 3. Post-sleep detection (cognitive agents only)
     if (this.isCognitiveAgent(agent)) {
       const sleepMarkers = [
         /checkpoint: session/i,
