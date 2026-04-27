@@ -16,7 +16,7 @@ Works with any Claude Code session. Optional deep integration with cognitive-tem
 # Clone and install
 git clone <repo-url> agent-conductor
 cd agent-conductor
-npm install
+pnpm install
 
 # Create .env with Telegram credentials
 echo "CONDUCTOR_TELEGRAM_TOKEN=<from BotFather>" > .env

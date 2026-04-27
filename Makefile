@@ -143,7 +143,7 @@ data:
 
 .PHONY: setup
 setup: data ## First-time setup
-	npm install
+	pnpm install
 	@echo ""
 	@[ -f .env ] && echo "✓ .env" || echo "✗ .env missing"
 	@[ -n "$(CONDUCTOR_TELEGRAM_TOKEN)" ] && echo "✓ Telegram token" || echo "✗ Telegram token not set"
