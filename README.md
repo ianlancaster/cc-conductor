@@ -51,8 +51,9 @@ Conversation:
   //<cmd>                     Forward slash command to talk target
 
 Lifecycle:
-  /spawn <name> [opts]        Create + start a new instance
+  /spawn <name> [opts]        Create bare instance + start
                               --path /dir  --model model  --prompt "text"
+  /spawn-agent <name>         Clone cognitive template + /awaken
   /teardown <name> [--delete] Stop + deregister (--delete removes directory)
 
 Modes:
@@ -60,6 +61,9 @@ Modes:
   /approve <agent|all>        Approve mode
   /facil <agent|all>          Facilitated mode (/facilitated alias)
   /nudge <agent|all> <level>  Set nudge aggressiveness (low|regular|aggressive)
+  /pause <agent|all>          Temp switch to facilitated, remember previous mode
+  /resume <agent|all>         Restore previous mode
+  /autopause [on|off]         Auto-pause agents when their pane is focused
 
 Escalations:
   /approve <id>               Approve an escalation
@@ -67,7 +71,8 @@ Escalations:
   /queue                      Pending escalations
   /clear                      Dismiss all pending escalations
 
-Debug:
+CLI:
+  /c                          Clear terminal output
   /tail <agent> [lines]       Capture agent's pane (default 30)
 ```
 
@@ -104,7 +109,6 @@ The `/status` command shows real-time activity:
 | 🟢 | `working` | Pane is producing output |
 | 🟡 | `stalled` | Pane is still, stall judge invoked |
 | 🔵 | `awaiting_approval` | Pending escalation |
-| 🟠 | `wrapping_up` | Running end-of-session ritual |
 | ⚪ | `stopped` | No active session |
 
 Cognitive-template agents appear under **Agents**; generic Claude Code instances appear under **Instances**.
@@ -154,8 +158,9 @@ Pane-content-based stall detection runs every 30 seconds:
 3. Pane changed → `working`
 4. Pane unchanged 30+ seconds → `stalled`, stall judge invoked
 5. **Compaction check**: if "Compacted" appears, sends a resumption nudge
-6. **Facilitated**: stalls ignored (operator is driving)
-7. **Approve/Auto**: Claude Haiku classifies and drafts a response per nudge level
+6. **Numbered options**: settings permission prompts ("Yes, and allow Claude to edit its own settings") are auto-approved for ALL agents regardless of mode
+7. **Facilitated**: all other stalls ignored (operator is driving)
+8. **Approve/Auto**: Claude Haiku classifies and drafts a response per nudge level
 
 ## Rate Limit Monitoring
 
@@ -181,11 +186,11 @@ schedules:
 
 Features:
 - Full 5-field cron syntax
-- Fires once per matching minute, skips if agent is already active
+- Fires once per matching minute for active agents; skips if agent is not running
 - **Hot-reload**: re-reads YAML configs every 5 minutes
 - **Pausing**: set `paused: true` to skip a scheduled task
 - **Fresh sessions**: `freshSession: true` stops old session before starting new
-- **Missed schedule recovery**: detects Mac sleep gaps and fires skipped schedules
+- **Pause-aware**: crons are deferred while an agent is `/pause`d
 
 ## Cognitive Template Integration
 
@@ -214,6 +219,7 @@ All agents launched by the conductor receive:
 | `CLAUDE_CODE_DISABLE_TERMINAL_TITLE` | `1` | Conductor manages titles |
 | `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` | `1` | Auto-resume on crash |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | No telemetry |
+| `CLAUDE_CODE_ENABLE_AWAY_SUMMARY` | `0` | Disable recap (interferes with stall detection) |
 
 Plus:
 - `--mcp-config` pointing to the conductor's MCP server
