@@ -172,6 +172,7 @@ export class AgentSession {
       "CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1",
       "CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1",
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+      "CLAUDE_CODE_ENABLE_AWAY_SUMMARY=0",
     ];
     const envSetup = `export ${envVars.join(" ")}`;
 

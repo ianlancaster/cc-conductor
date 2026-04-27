@@ -133,11 +133,44 @@ export class IterminalWorkspace {
   }
 
   runInPrimaryPane(command: string): void {
-    if (!this.primaryPaneId) {
-      log().warn("iterm", "No primary pane ID stored — cannot launch CLI");
+    if (!this.primaryPaneId || !this.isPrimaryPaneAlive()) {
+      if (this.windowId === null) {
+        log().warn("iterm", "No window — cannot launch CLI");
+        return;
+      }
+      log().info("iterm", "Primary pane dead or missing — recreating as new tab");
+      try {
+        const stdout = this.runOsa(`
+          tell application "iTerm2"
+            tell window id ${this.windowId}
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                set name to "${this.escapeApple(this.windowName)}"
+                return id as string
+              end tell
+            end tell
+          end tell
+        `);
+        this.primaryPaneId = stdout.trim();
+        this.persistState();
+        log().info("iterm", `Primary pane recreated as tab (session=${this.primaryPaneId.slice(0, 8)})`);
+        setTimeout(() => this.writeTextLine(this.primaryPaneId!, command), 1000);
+      } catch (err) {
+        log().warn("iterm", `Failed to recreate primary pane: ${String(err)}`);
+      }
       return;
     }
     this.writeTextLine(this.primaryPaneId, command);
+  }
+
+  private isPrimaryPaneAlive(): boolean {
+    if (!this.primaryPaneId) return false;
+    try {
+      const result = this.inSession(this.primaryPaneId, "", '"ALIVE"').trim();
+      return result === "ALIVE";
+    } catch {
+      return false;
+    }
   }
 
   /** Bring the conductor window to the foreground. */
