@@ -20,6 +20,7 @@ export type AgentSchedule = {
 export type SchedulerOptions = {
   startAgent: (agent: string, prompt: string) => Promise<void>;
   stopAgent: (agent: string) => Promise<void>;
+  sendToPane: (agent: string, message: string) => void;
   isAgentActive: (agent: string) => boolean;
 };
 
@@ -72,19 +73,20 @@ export class Scheduler {
 
         this.lastFiredKey.add(fireKey);
 
-        if (this.options.isAgentActive(agentSched.agent)) {
-          const label = entry.label ? ` [${entry.label}]` : "";
-          log().info("scheduler", `${agentSched.agent}${label}: schedule matched but agent is active, skipping`);
+        const label = entry.label ? ` [${entry.label}]` : "";
+        const active = this.options.isAgentActive(agentSched.agent);
+
+        if (!active) {
+          log().info("scheduler", `${agentSched.agent}${label}: schedule matched but agent is not running, skipping`);
           continue;
         }
 
-        const label = entry.label ? ` [${entry.label}]` : "";
         log().info("scheduler", `${agentSched.agent}${label}: firing schedule "${entry.prompt.slice(0, 60)}"`);
 
         if (entry.freshSession) {
           this.fireWithFreshSession(agentSched.agent, entry);
         } else {
-          this.options.startAgent(agentSched.agent, entry.prompt);
+          this.options.sendToPane(agentSched.agent, entry.prompt);
         }
       }
     }
