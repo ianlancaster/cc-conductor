@@ -393,11 +393,12 @@ export class IterminalWorkspace {
     log().info("iterm", `${agent}: closing pane`);
     try {
       // Close just the matching session (pane), not the tab it's in —
-      // other agent panes may still be in the same tab.
+      // other agent panes may still be in the same tab. Search all windows
+      // so panes that were moved out of the conductor window are still found.
       this.runOsa(`
         tell application "iTerm2"
-          tell window id ${this.windowId}
-            repeat with t in tabs
+          repeat with w in windows
+            repeat with t in tabs of w
               repeat with s in sessions of t
                 if (id of s) is "${pane.sessionId}" then
                   close s
@@ -405,7 +406,7 @@ export class IterminalWorkspace {
                 end if
               end repeat
             end repeat
-          end tell
+          end repeat
         end tell
       `);
     } catch (err) {
@@ -563,17 +564,19 @@ export class IterminalWorkspace {
 
   /**
    * Execute AppleScript operations inside the `tell` block of a specific
-   * session, looked up by iTerm2 UUID via iteration (the direct
-   * `session id "X"` reference pattern does not work reliably across
-   * osascript process boundaries for recently-created sessions, so we
-   * iterate windows → tabs → sessions within a single tell block).
+   * session, looked up by iTerm2 UUID via iteration across ALL windows.
+   * Searching all windows (not just this.windowId) means sessions that have
+   * been moved to a different iTerm2 window are still reachable — iTerm2
+   * session UUIDs are stable for the session's lifetime regardless of which
+   * window the pane lives in. The direct `session id "X"` reference pattern
+   * does not work reliably across osascript process boundaries for
+   * recently-created sessions, so we iterate instead.
    */
   private inSession(sessionId: string, operations: string, returnExpr: string = '"OK"'): string {
-    if (this.windowId === null) return "";
     return this.runOsa(`
       tell application "iTerm2"
-        tell window id ${this.windowId}
-          repeat with t in tabs
+        repeat with w in windows
+          repeat with t in tabs of w
             repeat with s in sessions of t
               if (id of s) is "${sessionId}" then
                 tell s
@@ -583,7 +586,7 @@ export class IterminalWorkspace {
               end if
             end repeat
           end repeat
-        end tell
+        end repeat
       end tell
     `);
   }
@@ -607,17 +610,18 @@ export class IterminalWorkspace {
       return;
     }
     try {
-      // Get all live session IDs in the window
+      // Get all live session IDs across all windows — sessions may have been
+      // moved to a different window while the conductor was running.
       const raw = this.runOsa(`
         tell application "iTerm2"
           set out to ""
-          tell window id ${this.windowId}
-            repeat with t in tabs
+          repeat with w in windows
+            repeat with t in tabs of w
               repeat with s in sessions of t
                 set out to out & (id of s) & linefeed
               end repeat
             end repeat
-          end tell
+          end repeat
           return out
         end tell
       `).trim();
