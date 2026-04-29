@@ -325,10 +325,15 @@ export class IterminalWorkspace {
       log().warn("iterm", `${agent}: no pane found, cannot launch command`);
       return;
     }
-    log().debug("iterm", `${agent}: launching (will poll for prompt, timeout=${timeoutSeconds}s)`);
-    const path = this.writeTempContent(command);
-    // Prompt markers we know about. First matches common zsh prompts
-    // (" ==> "), others cover common PS1 shapes.
+    log().debug("iterm", `${agent}: launching (will poll for prompt, timeout=${timeoutSeconds}s, length=${command.length})`);
+    // For long commands, use bracketed paste to avoid PTY input buffer
+    // truncation (MAX_CANON ~1024 bytes in canonical mode).
+    const ESC = String.fromCharCode(27);
+    const useBracketedPaste = command.length > 512;
+    const content = useBracketedPaste
+      ? `${ESC}[200~${command}${ESC}[201~`
+      : command;
+    const path = this.writeTempContent(content);
     const pollIters = Math.ceil(timeoutSeconds / 0.25);
     const stdout = this.inSession(
       pane.sessionId,
@@ -363,13 +368,14 @@ export class IterminalWorkspace {
       return;
     }
 
-    const hasNewlines = command.includes("\n");
+    const useBracketedPaste = command.includes("\n") || command.length > 512;
     log().debug("iterm", `${agent}: sending → ${command.slice(0, 80)}`, {
       lines: command.split("\n").length,
-      method: hasNewlines ? "bracketed-paste" : "write-text",
+      length: command.length,
+      method: useBracketedPaste ? "bracketed-paste" : "write-text",
     });
 
-    if (hasNewlines) {
+    if (useBracketedPaste) {
       this.writeBracketedPaste(pane.sessionId, command);
     } else {
       this.writeTextLine(pane.sessionId, command);
