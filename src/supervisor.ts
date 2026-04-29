@@ -6,6 +6,7 @@ import { EscalationQueue } from "./engine/escalation-queue.js";
 import { IterminalWorkspace } from "./transport/iterm.js";
 import { TelegramTransport } from "./transport/telegram.js";
 import { AgentSession } from "./session/agent-session.js";
+import type { PanePlacement } from "./session/types.js";
 
 import { ModeManager } from "./session/mode-manager.js";
 import { ConductorMcpServer } from "./mcp/server.js";
@@ -20,6 +21,7 @@ import { writeFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from "fs";
 export type AgentStatusReport = {
   codename: string;
   domain: string;
+  tag: string | null;
   status: "active" | "idle";
   autonomy: "autonomous" | "facilitated" | "approve";
   nudgeLevel: "low" | "regular" | "aggressive";
@@ -54,6 +56,7 @@ export class Supervisor {
     message: string;
   }>();
   private mcpConfigPath: string;
+  private mcpConfigDir: string;
   private systemPromptPath: string;
   private cognitivePromptPath: string;
   private agentsDir: string;
@@ -182,6 +185,8 @@ export class Supervisor {
     const mcpConfig = (this.config as Record<string, unknown>).mcp as Record<string, unknown> | undefined;
     const mcpPort = (mcpConfig?.port as number) ?? 3456;
     this.mcpConfigPath = resolve(baseDir, "data", "conductor-mcp.json");
+    this.mcpConfigDir = resolve(baseDir, "data", "mcp-configs");
+    if (!existsSync(this.mcpConfigDir)) mkdirSync(this.mcpConfigDir, { recursive: true });
     this.systemPromptPath = resolve(baseDir, "config", "system-prompt-base.txt");
     this.cognitivePromptPath = resolve(baseDir, "config", "system-prompt-cognitive.txt");
 
@@ -192,9 +197,9 @@ export class Supervisor {
         this.handleHumanInputRequest(from, question, context, options),
       respondToUser: (from, message) => this.handleUserResponse(from, message),
 
-      startAgent: (codename, prompt) => this.startAgent(codename, prompt),
+      startAgent: (codename, prompt, opts) => this.startAgent(codename, prompt, opts),
       stopAgent: (codename) => this.stopAgent(codename),
-      continueAgent: (codename) => this.continueAgent(codename),
+      continueAgent: (codename, opts) => this.continueAgent(codename, opts),
       setAutonomy: (codename, autonomy) => this.setAutonomy(codename, autonomy),
       sendToAgent: (codename, message) => this.sendToAgent(codename, message),
       typeInPane: (codename, text) => this.workspace.runInPane(codename, text),
@@ -206,6 +211,8 @@ export class Supervisor {
       getAgentStatus: (codename) => this.getAgentStatus(codename),
       capturePane: (agent, lines) => this.workspace.capturePane(agent, lines),
       setNudgeLevel: (codename, level) => this.modeManager.setNudgeLevel(codename, level),
+      setTag: (codename, tag) => this.setTag(codename, tag),
+      getTag: (codename) => this.modeManager.getTag(codename),
       listEscalations: () =>
         this.stateStore.getPendingEscalations().map((e) => ({
           id: e.id,
@@ -318,7 +325,7 @@ export class Supervisor {
     log().info("supervisor", "Shutdown complete");
   }
 
-  async continueAgent(agentName: string): Promise<void> {
+  async continueAgent(agentName: string, opts?: { placement?: PanePlacement }): Promise<void> {
     const policy = this.config.agents[agentName];
     if (!policy) {
       log().error("session", `Cannot continue unknown agent: ${agentName}`);
@@ -339,13 +346,14 @@ export class Supervisor {
       workspace: this.workspace,
       policy,
       stateStore: this.stateStore,
-      mcpConfigPath: this.mcpConfigPath,
+      mcpConfigPath: this.getAgentMcpConfigPath(agentName),
       systemPromptPath: this.systemPromptPath,
       cognitivePromptPath: this.cognitivePromptPath,
       cognitive,
+      tag: this.modeManager.getTag(agentName),
     });
 
-    const sessionId = session.continue();
+    const sessionId = session.continue({ placement: opts?.placement });
     this.agentSessions.set(agentName, session);
     this.modeManager.setSessionActive(agentName, true, sessionId);
     this.modeManager.setActivityStatus(agentName, "working");
@@ -355,7 +363,7 @@ export class Supervisor {
     this.updateStatus();
   }
 
-  async startAgent(agentName: string, prompt?: string): Promise<void> {
+  async startAgent(agentName: string, prompt?: string, opts?: { placement?: PanePlacement }): Promise<void> {
     const policy = this.config.agents[agentName];
     if (!policy) {
       log().error("session", `Cannot start unknown agent: ${agentName}`);
@@ -386,13 +394,14 @@ export class Supervisor {
       workspace: this.workspace,
       policy,
       stateStore: this.stateStore,
-      mcpConfigPath: this.mcpConfigPath,
+      mcpConfigPath: this.getAgentMcpConfigPath(agentName),
       systemPromptPath: this.systemPromptPath,
       cognitivePromptPath: this.cognitivePromptPath,
       cognitive,
+      tag: this.modeManager.getTag(agentName),
     });
 
-    const sessionId = prompt ? session.start(prompt) : session.start();
+    const sessionId = session.start(prompt, { placement: opts?.placement });
 
     this.agentSessions.set(agentName, session);
     this.modeManager.setSessionActive(agentName, true, sessionId);
@@ -438,6 +447,18 @@ export class Supervisor {
     if (previous === "facilitated" && autonomy !== "facilitated") {
       this.healthMonitor.resetAgent(agentName);
     }
+  }
+
+  setTag(agentName: string, tag: string | null): void {
+    const policy = this.config.agents[agentName];
+    if (!policy) {
+      log().error("tag", `Cannot tag unknown agent: ${agentName}`);
+      return;
+    }
+    this.modeManager.setTag(agentName, tag);
+    const displayName = tag ? `${agentName} — ${tag}` : agentName;
+    this.workspace.updatePaneName(agentName, displayName);
+    log().info("tag", `${agentName}: tag ${tag ? `set to "${tag}"` : "cleared"}`);
   }
 
   async sendToAgent(agentName: string, message: string): Promise<void> {
@@ -494,6 +515,7 @@ export class Supervisor {
     return {
       codename: agentName,
       domain: policy?.agent ?? agentName,
+      tag: correctedState?.tag ?? null,
       status: correctedState?.sessionActive ? "active" : "idle",
       autonomy: correctedState?.autonomy ?? "facilitated",
       nudgeLevel: correctedState?.nudgeLevel ?? "regular",
@@ -698,6 +720,7 @@ export class Supervisor {
     path?: string;
     model?: string;
     prompt?: string;
+    placement?: PanePlacement;
   }): Promise<string> {
     if (this.config.agents[codename]) {
       return `Error: agent '${codename}' already exists.`;
@@ -751,7 +774,7 @@ export class Supervisor {
     this.modeManager.addAgent(codename);
 
     // Start the session
-    await this.startAgent(codename, opts?.prompt);
+    await this.startAgent(codename, opts?.prompt, { placement: opts?.placement });
 
     const promptNote = opts?.prompt ? ` with prompt` : "";
     return `Spawned ${codename} at ${agentDir} (${model})${promptNote}.`;
@@ -899,6 +922,22 @@ export class Supervisor {
 
     // Bare text → route to talk target (same as Telegram free text)
     return (await this.handleFreeText(input)) ?? "";
+  }
+
+  private getAgentMcpConfigPath(agentName: string): string {
+    const configPath = resolve(this.mcpConfigDir, `${agentName}.json`);
+    if (!existsSync(configPath)) {
+      const port = this.mcpServer.getPort();
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          { mcpServers: { conductor: { type: "http", url: `http://localhost:${port}/mcp/${encodeURIComponent(agentName)}` } } },
+          null,
+          2
+        )
+      );
+    }
+    return configPath;
   }
 
   isCognitiveAgent(agent: string): boolean {
@@ -1279,7 +1318,8 @@ export class Supervisor {
     const pause = this.modeManager.getPauseState(name);
     const mode = pause?.paused ? `paused←${modeMap[pause.previousAutonomy!] ?? pause.previousAutonomy}` : (modeMap[report.autonomy] ?? report.autonomy);
     const nudge = !pause?.paused && report.autonomy !== "facilitated" && report.nudgeLevel !== "regular" ? ` [${report.nudgeLevel}]` : "";
-    return `  • \`${name}\` — ${statusIcon} ${report.activityStatus} (${mode}${nudge})`;
+    const tagSuffix = report.tag ? ` "${report.tag}"` : "";
+    return `  • \`${name}\`${tagSuffix} — ${statusIcon} ${report.activityStatus} (${mode}${nudge})`;
   }
 
   private buildStatusMessage(): string {
@@ -1314,8 +1354,8 @@ export class Supervisor {
     return [
       "*Commands:*",
       "`/status` — agent overview",
-      "`/start <agent|all>` — start a session",
-      "`/continue <agent|all>` — resume last session",
+      "`/start <agent|all> [--tab|--window]` — start a session",
+      "`/continue <agent|all> [--tab|--window]` — resume last session",
       "`/stop <agent|all>` — stop a session",
       "`/talk <agent>` — set conversation target (`/speak` alias)",
       "`/tell <agent> <msg>` — start with directive",
@@ -1323,7 +1363,7 @@ export class Supervisor {
       "`/broadcast <msg>` — send message to all active agents",
       "",
       "*Lifecycle:*",
-      "`/spawn <name> [--path p] [--model m] [--prompt \"p\"]` — create bare agent + start",
+      "`/spawn <name> [--path p] [--model m] [--prompt \"p\"] [--tab|--window]` — create bare agent + start",
       "`/spawn-agent <name>` — clone cognitive template + /awaken",
       "`/teardown <name> [--delete]` — stop + deregister (--delete removes dir)",
       "",
@@ -1331,6 +1371,7 @@ export class Supervisor {
       "`/auto <agent|all>` — autonomous mode",
       "`/approve <agent|all>` — approve mode",
       "`/facil <agent|all>` — facilitated mode",
+      "`/tag <agent> [text]` — label an agent (omit text to clear)",
       "`/nudge <agent|all> <low|regular|aggressive>` — nudge level",
       "`/pause <agent|all>` — temp switch to facilitated, remember previous mode",
       "`/resume <agent|all>` — restore previous mode",
@@ -1440,6 +1481,22 @@ export class Supervisor {
     return Object.keys(this.config.agents);
   }
 
+  private parsePlacement(args: string): { placement?: PanePlacement; rest: string } {
+    let placement: PanePlacement | undefined;
+    let rest = args;
+    if (rest.includes("--window")) {
+      placement = "window";
+      rest = rest.replace("--window", "").trim();
+    } else if (rest.includes("--tab")) {
+      placement = "tab";
+      rest = rest.replace("--tab", "").trim();
+    } else if (rest.includes("--pane")) {
+      placement = "pane";
+      rest = rest.replace("--pane", "").trim();
+    }
+    return { placement, rest };
+  }
+
   private async handleTelegramCommand(command: string, args: string): Promise<string> {
     log().info("telegram", `Command: ${command} ${args}`.trim());
 
@@ -1476,27 +1533,29 @@ export class Supervisor {
       }
 
       case "/start": {
-        const agent = args.trim();
+        const { placement, rest: startArgs } = this.parsePlacement(args);
+        const agent = startArgs.trim();
         if (!agent) return this.buildWelcomeMessage();
         if (agent === "all") {
           const agents = this.allAgentNames();
-          for (const a of agents) this.startAgent(a);
+          for (const a of agents) this.startAgent(a, undefined, { placement });
           return `Starting all ${agents.length} agents...`;
         }
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
-        this.startAgent(agent);
+        this.startAgent(agent, undefined, { placement });
         return `Starting ${agent}...`;
       }
 
       case "/continue": {
-        const agent = args.trim();
+        const { placement: contPlacement, rest: contArgs } = this.parsePlacement(args);
+        const agent = contArgs.trim();
         if (agent === "all") {
           const agents = this.allAgentNames();
-          for (const a of agents) this.continueAgent(a);
+          for (const a of agents) this.continueAgent(a, { placement: contPlacement });
           return `Resuming all ${agents.length} agents...`;
         }
         if (!this.config.agents[agent]) return `Unknown agent: ${agent}`;
-        this.continueAgent(agent);
+        this.continueAgent(agent, { placement: contPlacement });
         return `Resuming ${agent}'s last session...`;
       }
 
@@ -1585,11 +1644,12 @@ export class Supervisor {
       }
 
       case "/spawn": {
-        // /spawn <codename> [--path /path] [--model model] [--prompt "text"]
-        const spawnArgs = args.trim();
-        if (!spawnArgs) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"]";
+        // /spawn <codename> [--path /path] [--model model] [--prompt "text"] [--tab|--window|--pane]
+        const { placement: spawnPlacement, rest: spawnArgsRaw } = this.parsePlacement(args);
+        const spawnArgs = spawnArgsRaw.trim();
+        if (!spawnArgs) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"] [--tab|--window|--pane]";
         const spawnParts = spawnArgs.match(/^(\S+)(.*)/);
-        if (!spawnParts) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"]";
+        if (!spawnParts) return "Usage: /spawn <codename> [--path /path] [--model model] [--prompt \"text\"] [--tab|--window|--pane]";
         const spawnCodename = spawnParts[1];
         const spawnRest = spawnParts[2];
         const pathMatch = spawnRest.match(/--path\s+(\S+)/);
@@ -1599,6 +1659,7 @@ export class Supervisor {
           path: pathMatch?.[1],
           model: modelMatch?.[1],
           prompt: promptMatch?.[1],
+          placement: spawnPlacement,
         });
         return result;
       }
@@ -1660,6 +1721,17 @@ export class Supervisor {
         this.modeManager.setNudgeLevel(nudgeAgent, nudgeLevel);
         log().info("mode", `${nudgeAgent} nudge level → ${nudgeLevel}`);
         return `${nudgeAgent} nudge level set to ${nudgeLevel}.`;
+      }
+
+      case "/tag": {
+        const tagArgs = args.trim();
+        if (!tagArgs) return "Usage: /tag <agent> <text> or /tag <agent> (clear)";
+        const tagSpaceIdx = tagArgs.indexOf(" ");
+        const tagAgent = tagSpaceIdx === -1 ? tagArgs : tagArgs.slice(0, tagSpaceIdx);
+        const tagText = tagSpaceIdx === -1 ? null : tagArgs.slice(tagSpaceIdx + 1).trim() || null;
+        if (!this.config.agents[tagAgent]) return `Unknown agent: ${tagAgent}`;
+        this.setTag(tagAgent, tagText);
+        return tagText ? `${tagAgent} tagged: "${tagText}"` : `${tagAgent} tag cleared.`;
       }
 
       case "/autopause": {
