@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { log } from "../logger.js";
 
-export type McpToolHandler = (args: Record<string, unknown>) => Promise<string>;
+export type McpToolHandler = (args: Record<string, unknown>, caller: string) => Promise<string>;
 
 export type McpServerConfig = {
   port: number;
@@ -21,8 +21,11 @@ export class ConductorMcpServer {
     this.onCommand = null;
 
     this.server = createServer(async (req, res) => {
-      if (req.method === "POST" && req.url === "/mcp") {
-        await this.handleMcpRequest(req, res);
+      if (req.method === "POST" && req.url?.startsWith("/mcp/")) {
+        const caller = decodeURIComponent(req.url.slice("/mcp/".length));
+        await this.handleMcpRequest(req, res, caller);
+      } else if (req.method === "POST" && req.url === "/mcp") {
+        await this.handleMcpRequest(req, res, "unknown");
       } else if (req.method === "POST" && req.url === "/cmd") {
         await this.handleCmdRequest(req, res);
       } else if (req.method === "GET" && req.url === "/health") {
@@ -63,7 +66,8 @@ export class ConductorMcpServer {
 
   private async handleMcpRequest(
     req: import("http").IncomingMessage,
-    res: import("http").ServerResponse
+    res: import("http").ServerResponse,
+    caller: string
   ): Promise<void> {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -145,8 +149,8 @@ export class ConductorMcpServer {
           return;
         }
 
-        const result = await tool.handler(params.arguments);
-        log().info("mcp", `Tool ${params.name} complete (${result.length} chars)`);
+        const result = await tool.handler(params.arguments, caller);
+        log().info("mcp", `Tool ${params.name} complete (${result.length} chars, caller=${caller})`);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({

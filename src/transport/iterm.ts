@@ -3,6 +3,7 @@ import { writeFileSync, mkdtempSync, readFileSync, existsSync, unlinkSync } from
 import { tmpdir } from "os";
 import { join } from "path";
 import { log } from "../logger.js";
+import type { PanePlacement } from "../session/types.js";
 
 export type IterminalConfig = {
   windowName: string;
@@ -230,11 +231,16 @@ export class IterminalWorkspace {
   // ── Agent tab operations ────────────────────────────────────────────
 
   /**
-   * Create a new tab in the conductor window for the agent. Returns the
-   * iTerm2 session UUID, which should be stored and used for subsequent
-   * operations instead of the agent name.
+   * Create a new pane, tab, or window for the agent. Returns the iTerm2
+   * session UUID, which should be stored and used for subsequent operations
+   * instead of the agent name.
+   *
+   * placement (default "pane"):
+   *   - "pane"   — split the first tab vertically (flat side-by-side layout)
+   *   - "tab"    — new tab in the conductor window
+   *   - "window" — entirely new iTerm2 window
    */
-  createAgentPane(agent: string, options?: { focus?: boolean }): string {
+  createAgentPane(agent: string, options?: { focus?: boolean; placement?: PanePlacement; tag?: string | null }): string {
     if (this.windowId === null) {
       throw new Error("Workspace not created; call createWorkspace() first");
     }
@@ -244,34 +250,57 @@ export class IterminalWorkspace {
     }
 
     const focus = options?.focus ?? true;
-    log().info("iterm", `${agent}: creating pane`);
+    const placement = options?.placement ?? "pane";
+    const displayName = options?.tag ? `${agent} — ${options.tag}` : agent;
+    log().info("iterm", `${agent}: creating ${placement}`);
 
-    // Create the pane by splitting the first (orientation) session of the
-    // first tab. This keeps every agent pane as a sibling of the orientation
-    // pane in a flat layout. Nothing is written to the session here — the
-    // shell is still booting, so any bytes written now would go onto its
-    // stdin buffer and be mis-executed. Visual identity (badge, user-var,
-    // session name) is set later inside the claude launch command that the
-    // shell itself executes.
-    const stdout = this.runOsa(`
-      tell application "iTerm2"
-        ${focus ? "activate" : ""}
-        tell window id ${this.windowId}
-          tell current session of first tab
-            set newSession to (split vertically with default profile)
-            tell newSession
-              set name to "${this.escapeApple(agent)}"
+    let script: string;
+    if (placement === "window") {
+      script = `
+        tell application "iTerm2"
+          ${focus ? "activate" : ""}
+          set newWin to (create window with default profile)
+          tell current session of current tab of newWin
+            set name to "${this.escapeApple(displayName)}"
+            return id as string
+          end tell
+        end tell
+      `;
+    } else if (placement === "tab") {
+      script = `
+        tell application "iTerm2"
+          ${focus ? "activate" : ""}
+          tell window id ${this.windowId}
+            set newTab to (create tab with default profile)
+            tell current session of newTab
+              set name to "${this.escapeApple(displayName)}"
               return id as string
             end tell
           end tell
         end tell
-      end tell
-    `);
+      `;
+    } else {
+      script = `
+        tell application "iTerm2"
+          ${focus ? "activate" : ""}
+          tell window id ${this.windowId}
+            tell current session of first tab
+              set newSession to (split vertically with default profile)
+              tell newSession
+                set name to "${this.escapeApple(displayName)}"
+                return id as string
+              end tell
+            end tell
+          end tell
+        end tell
+      `;
+    }
 
+    const stdout = this.runOsa(script);
     const sessionId = stdout.trim();
     this.agentPanes.set(agent, { agent, sessionId });
     this.persistState();
-    log().debug("iterm", `${agent}: pane created (session=${sessionId.slice(0, 8)})`);
+    log().debug("iterm", `${agent}: ${placement} created (session=${sessionId.slice(0, 8)})`);
     return sessionId;
   }
 
@@ -432,6 +461,17 @@ export class IterminalWorkspace {
       return null;
     } catch {
       return null;
+    }
+  }
+
+  updatePaneName(agent: string, displayName: string): void {
+    const pane = this.agentPanes.get(agent);
+    if (!pane) return;
+    try {
+      this.inSession(pane.sessionId,
+        `set name to "${this.escapeApple(displayName)}"`);
+    } catch (err) {
+      log().debug("iterm", `${agent}: update pane name failed: ${String(err)}`);
     }
   }
 

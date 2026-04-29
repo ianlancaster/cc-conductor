@@ -26,6 +26,7 @@ export class ModeManager {
         cognitive: false,
         autoObjective: null,
         autoStartedAt: null,
+        tag: null,
       });
     }
 
@@ -46,6 +47,7 @@ export class ModeManager {
       cognitive: false,
       autoObjective: null,
       autoStartedAt: null,
+      tag: null,
     });
   }
 
@@ -113,6 +115,18 @@ export class ModeManager {
 
   getAutoObjective(agent: string): string | null {
     return this.agentStates.get(agent)?.autoObjective ?? null;
+  }
+
+  setTag(agent: string, tag: string | null): void {
+    const state = this.agentStates.get(agent);
+    if (state) {
+      state.tag = tag;
+      this.persistState();
+    }
+  }
+
+  getTag(agent: string): string | null {
+    return this.agentStates.get(agent)?.tag ?? null;
   }
 
   getAgentState(agent: string): AgentState | undefined {
@@ -202,7 +216,8 @@ export class ModeManager {
       const pause = this.pauseStates.get(state.agent);
       const mode = pause?.paused ? `paused←${modeMap[pause.previousAutonomy!] ?? pause.previousAutonomy}` : (modeMap[state.autonomy] ?? state.autonomy);
       const nudge = !pause?.paused && state.autonomy !== "facilitated" && state.nudgeLevel !== "regular" ? `,${state.nudgeLevel}` : "";
-      lines.push(`${state.agent}: ${statusIcon} ${state.activityStatus} (${mode}${nudge})`);
+      const tagSuffix = state.tag ? ` "${state.tag}"` : "";
+      lines.push(`${state.agent}${tagSuffix}: ${statusIcon} ${state.activityStatus} (${mode}${nudge})`);
     }
 
     return lines.join(" | ");
@@ -218,6 +233,7 @@ export class ModeManager {
             nudgeLevel: v.nudgeLevel,
             autoObjective: v.autoObjective,
             autoStartedAt: v.autoStartedAt,
+            tag: v.tag,
           },
         ])
       ),
@@ -241,6 +257,7 @@ export class ModeManager {
           nudgeLevel?: NudgeLevel;
           autoObjective?: string | null;
           autoStartedAt?: string | null;
+          tag?: string | null;
         }>;
       };
       for (const [agent, settings] of Object.entries(data.agents)) {
@@ -250,6 +267,7 @@ export class ModeManager {
           state.nudgeLevel = settings.nudgeLevel ?? "regular";
           state.autoObjective = settings.autoObjective ?? null;
           state.autoStartedAt = settings.autoStartedAt ?? null;
+          state.tag = settings.tag ?? null;
         }
       }
       log().info("mode", `Loaded persisted mode state for ${Object.keys(data.agents).length} agents`);

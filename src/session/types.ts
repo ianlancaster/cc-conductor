@@ -1,6 +1,7 @@
 export type Autonomy = "facilitated" | "autonomous" | "approve";
 export type NudgeLevel = "low" | "regular" | "aggressive";
 export type ActivityStatus = "working" | "stalled" | "awaiting_approval" | "stopped";
+export type PanePlacement = "pane" | "tab" | "window";
 
 export type PauseState = {
   paused: boolean;
@@ -21,6 +22,7 @@ export type AgentState = {
   cognitive: boolean;
   autoObjective: string | null;
   autoStartedAt: string | null;
+  tag: string | null;
 };
 
 export type SessionEvent =

@@ -1,6 +1,7 @@
 import type { IterminalWorkspace } from "../transport/iterm.js";
 import type { AgentPolicy } from "../config.js";
 import type { StateStore } from "../engine/state-store.js";
+import type { PanePlacement } from "./types.js";
 import { log } from "../logger.js";
 import { randomUUID } from "crypto";
 
@@ -12,6 +13,7 @@ export type AgentSessionOptions = {
   systemPromptPath: string;
   cognitivePromptPath?: string;
   cognitive?: boolean;
+  tag?: string | null;
 };
 
 export class AgentSession {
@@ -23,6 +25,7 @@ export class AgentSession {
   private sessionId: string;
   private cognitive: boolean;
   private cognitivePromptPath: string | undefined;
+  private tag: string | null;
 
   constructor(options: AgentSessionOptions) {
     this.workspace = options.workspace;
@@ -33,9 +36,10 @@ export class AgentSession {
     this.cognitivePromptPath = options.cognitivePromptPath;
     this.sessionId = randomUUID();
     this.cognitive = options.cognitive ?? false;
+    this.tag = options.tag ?? null;
   }
 
-  continue(): string {
+  continue(opts?: { placement?: PanePlacement }): string {
     log().info("session", `${this.policy.codename}: continuing previous session`, {
       repo: this.policy.repo, sessionId: this.sessionId.slice(0, 8),
     });
@@ -43,7 +47,7 @@ export class AgentSession {
     const freshPane = !this.workspace.hasAgent(this.policy.codename);
     if (freshPane) {
       log().debug("session", `${this.policy.codename}: creating pane`);
-      this.workspace.createAgentPane(this.policy.codename);
+      this.workspace.createAgentPane(this.policy.codename, { placement: opts?.placement, tag: this.tag });
     }
 
     this.stateStore.insertSession({
@@ -62,7 +66,7 @@ export class AgentSession {
     return this.sessionId;
   }
 
-  start(prompt?: string): string {
+  start(prompt?: string, opts?: { placement?: PanePlacement }): string {
     log().info("session", `${this.policy.codename}: starting new session`, {
       repo: this.policy.repo, sessionId: this.sessionId.slice(0, 8),
       hasPrompt: !!prompt,
@@ -71,7 +75,7 @@ export class AgentSession {
     const freshPane = !this.workspace.hasAgent(this.policy.codename);
     if (freshPane) {
       log().debug("session", `${this.policy.codename}: creating pane`);
-      this.workspace.createAgentPane(this.policy.codename);
+      this.workspace.createAgentPane(this.policy.codename, { placement: opts?.placement, tag: this.tag });
     }
 
     this.stateStore.insertSession({
@@ -138,14 +142,14 @@ export class AgentSession {
       .join(" ");
 
     const codename = this.policy.codename;
+    const displayName = this.tag ? `${codename} — ${this.tag}` : codename;
     const codenameB64 = Buffer.from(codename, "utf-8").toString("base64");
+    const badgeB64 = Buffer.from(displayName, "utf-8").toString("base64");
 
     const oscSetup = [
-      `printf '\\033]1337;SetBadgeFormat=${codenameB64}\\a'`,
+      `printf '\\033]1337;SetBadgeFormat=${badgeB64}\\a'`,
       `printf '\\033]1337;SetUserVar=conductor_agent=${codenameB64}\\a'`,
-      // Set the session's window/tab title to the codename. Shell prompts
-      // often overwrite this later, but the user variable + badge persist.
-      `printf '\\033]0;${codename}\\a'`,
+      `printf '\\033]0;${displayName.replace(/'/g, "'\\''")}\\a'`,
     ].join(" && ");
 
     const claudeBin = opts.continueSession ? "claude -c" : "claude";

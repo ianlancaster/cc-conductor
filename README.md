@@ -32,16 +32,18 @@ make start-all      # Start conductor + all registered agents
 make focus          # Bring iTerm2 window to front
 ```
 
-The conductor creates an iTerm2 window with panes for each agent. Sessions persist across conductor restarts — pane mappings are saved to `data/workspace.json` and validated against live iTerm2 sessions on startup.
+The conductor creates an iTerm2 window with panes for each agent. Sessions persist across conductor restarts — pane mappings are saved to `data/workspace.json` and validated against live iTerm2 sessions on startup (including sessions that have been moved to other windows).
 
 ## Telegram Commands
 
 ```
 Sessions:
   /status                     Agent overview with activity status
-  /start <agent|all>          Start a session (or all)
+  /start <agent|all> [--tab|--window]
+                              Start a session (or all)
   /stop <agent|all>           Stop a session (or all)
-  /continue <agent|all>       Resume last session (or all)
+  /continue <agent|all> [--tab|--window]
+                              Resume last session (or all)
 
 Conversation:
   /talk <agent>               Set conversation target (/speak alias)
@@ -53,6 +55,7 @@ Conversation:
 Lifecycle:
   /spawn <name> [opts]        Create bare instance + start
                               --path /dir  --model model  --prompt "text"
+                              --tab  --window
   /spawn-agent <name>         Clone cognitive template + /awaken
   /teardown <name> [--delete] Stop + deregister (--delete removes directory)
 
@@ -60,6 +63,7 @@ Modes:
   /auto <agent|all>           Autonomous mode
   /approve <agent|all>        Approve mode
   /facil <agent|all>          Facilitated mode (/facilitated alias)
+  /tag <agent> [text]         Label an agent (omit text to clear)
   /nudge <agent|all> <level>  Set nudge aggressiveness (low|regular|aggressive)
   /pause <agent|all>          Temp switch to facilitated, remember previous mode
   /resume <agent|all>         Restore previous mode
@@ -100,6 +104,38 @@ Controls how aggressively the conductor pushes stalled agents. Set per-agent: `/
 | **regular** (default) | Nudge on questions + task completion. "Standing by" = nudge. Agent says "goodnight" = idle. |
 | **aggressive** | NEVER classify as idle. For overnight autonomous runs. |
 
+## Session Placement
+
+By default, new sessions open as panes (split vertically) in the conductor window. Use `--tab` or `--window` to change placement:
+
+```
+/start my-agent --tab         # Open in a new tab
+/start my-agent --window      # Open in a new iTerm2 window
+/continue my-agent --window   # Resume in a new window
+/spawn helper --tab           # Spawn a new instance in a tab
+```
+
+Available via MCP tools too — pass `placement: "tab"` or `placement: "window"` to `start_agent`, `continue_agent`, or `spawn_agent`.
+
+Sessions are tracked by iTerm2 session UUID regardless of which window they live in — moving a pane to a different window does not break communication.
+
+## Agent Tags
+
+Give any agent an arbitrary label that shows alongside its codename in status displays and iTerm2 tab/pane headers:
+
+```
+/tag my-agent refactoring auth module
+/tag my-agent                    # Clear the tag
+```
+
+Tags persist across conductor restarts. In status output:
+
+```
+• my-agent "refactoring auth module" — 🟢 working (auto)
+```
+
+Available via MCP tool: `set_tag { codename: "my-agent", tag: "refactoring auth module" }`.
+
 ## Agent Activity Status
 
 The `/status` command shows real-time activity:
@@ -115,7 +151,7 @@ Cognitive-template agents appear under **Agents**; generic Claude Code instances
 
 ## MCP Tools (Agent-to-Agent Communication)
 
-The conductor runs an HTTP MCP server on `localhost:3456`. Agents connect via `--mcp-config data/conductor-mcp.json`.
+The conductor runs an HTTP MCP server on `localhost:3456`. Each agent gets a per-agent MCP config at `data/mcp-configs/<codename>.json` with a unique endpoint URL (`/mcp/<codename>`). The server extracts the caller's identity from the URL path — agents do not self-identify. This prevents agents from sending messages under another agent's name.
 
 ### Communication
 | Tool | Description |
@@ -125,15 +161,16 @@ The conductor runs an HTTP MCP server on `localhost:3456`. Agents connect via `-
 | `broadcast` | Send to all active peers' panes immediately |
 | `request_human_input` | Ask the operator a question and block for response |
 | `notify_agents` | Queue notification for agents |
+| `type_in_pane` | Type raw text into a peer's pane (no envelope) |
 
 ### Orchestration
 | Tool | Description |
 |------|-------------|
-| `start_agent` | Start a peer's session |
+| `start_agent` | Start a peer's session (supports `placement`) |
 | `stop_agent` | Stop a peer's session |
-| `continue_agent` | Resume a peer's last session |
+| `continue_agent` | Resume a peer's last session (supports `placement`) |
 | `set_autonomy` | Set a peer's autonomy mode |
-| `spawn_agent` | Create + register + start a new instance |
+| `spawn_agent` | Create + register + start a new instance (supports `placement`) |
 | `teardown_agent` | Stop + deregister + optionally delete an instance |
 
 ### Context Management
@@ -147,7 +184,10 @@ The conductor runs an HTTP MCP server on `localhost:3456`. Agents connect via `-
 |------|-------------|
 | `list_agents` | All agents with status |
 | `get_agent_status` | Detailed status for one agent |
+| `tail_agent` | Capture trailing output from a peer's pane |
 | `list_escalations` | Pending escalation queue |
+| `set_nudge_level` | Set a peer's nudge aggressiveness |
+| `set_tag` | Label an agent (shown in status + iTerm2 header) |
 
 ## Health Monitor
 
@@ -222,7 +262,7 @@ All agents launched by the conductor receive:
 | `CLAUDE_CODE_ENABLE_AWAY_SUMMARY` | `0` | Disable recap (interferes with stall detection) |
 
 Plus:
-- `--mcp-config` pointing to the conductor's MCP server
+- `--mcp-config` pointing to the agent's per-agent MCP config (`data/mcp-configs/<codename>.json`)
 - `--append-system-prompt-file` with the conductor protocol (+ cognitive extensions if detected)
 - `--dangerously-skip-permissions` for autonomous operation
 - `--add-dir` for any configured additional directories
@@ -267,7 +307,7 @@ agent-conductor/
 │   ├── session/
 │   │   ├── agent-session.ts      Claude CLI session lifecycle
 │   │   ├── mode-manager.ts       Autonomy + nudge level + activity status
-│   │   └── types.ts              Autonomy, NudgeLevel, ActivityStatus
+│   │   └── types.ts              Autonomy, NudgeLevel, ActivityStatus, PanePlacement
 │   ├── mcp/
 │   │   ├── server.ts             HTTP MCP server
 │   │   └── tools.ts              All MCP tool definitions
@@ -279,6 +319,7 @@ agent-conductor/
 │   ├── system-prompt-cognitive.txt  Cognitive extensions (marker-detected)
 │   └── agents/                   Per-agent config (hot-reloaded)
 ├── data/                         Runtime state (gitignored)
+│   ├── mcp-configs/              Per-agent MCP configs (auto-generated)
 ├── docs/
 ├── Makefile
 └── .env                          Telegram credentials (gitignored)
