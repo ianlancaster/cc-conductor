@@ -476,7 +476,8 @@ export class IterminalWorkspace {
     if (!pane) return;
     try {
       this.inSession(pane.sessionId,
-        `set name to "${this.escapeApple(displayName)}"`);
+        `set name to "${this.escapeApple(displayName)}"
+         set badge to "${this.escapeApple(displayName)}"`);
     } catch (err) {
       log().debug("iterm", `${agent}: update pane name failed: ${String(err)}`);
     }
