@@ -341,8 +341,9 @@ export class IterminalWorkspace {
          end if
          delay 0.25
        end repeat
-       set cmdText to (read POSIX file "${path}" as «class utf8»)
-       write text (cmdText & (ASCII character 13))`,
+       write contents of file "${path}" newline false
+       delay 0.1
+       write text (ASCII character 13)`,
       `foundPrompt as string`
     );
     log().debug("iterm", `${agent}: launch — prompt detected=${stdout.trim()}`);
@@ -579,13 +580,12 @@ export class IterminalWorkspace {
 
   private writeTextLine(sessionId: string, text: string): void {
     const path = this.writeTempContent(text);
-    // Write text first, then send CR separately after a brief delay.
-    // CR (ASCII 13) is what terminals expect for Enter/submit.
-    // iTerm2's default `newline true` appends LF which does NOT
-    // trigger readline's accept-line.
+    // Use `write contents of file` instead of `write text` — iTerm2's
+    // `write text` simulates keyboard input and truncates strings longer
+    // than ~800 chars. File-based writing streams directly and handles
+    // arbitrary lengths. CR sent separately to submit.
     this.inSession(sessionId,
-      `set cmdText to (read POSIX file "${path}" as «class utf8»)
-       write text cmdText without newline
+      `write contents of file "${path}" newline false
        delay 0.2
        write text (ASCII character 13)`);
   }
