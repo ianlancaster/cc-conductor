@@ -49,6 +49,10 @@ export class Supervisor {
   private agentSessions = new Map<string, AgentSession>();
   private pendingCustomReplyId: number | null = null;
   private lastStallRouteTime = new Map<string, number>();
+  private messageQueue = new Map<string, Array<{ text: string; queuedAt: number }>>();
+  private messageQueueIntervalId: ReturnType<typeof setInterval> | null = null;
+  private static MESSAGE_QUEUE_DRAIN_MS = 2000;
+  private static MESSAGE_QUEUE_MAX_AGE_MS = 60_000;
   private pendingApprovals = new Map<number, {
     agent: string;
     action: "send_to_agent" | "respond_to_user";
@@ -112,7 +116,7 @@ export class Supervisor {
         this.startAgent(agent, prompt);
       },
       stopAgent: (agent) => this.stopAgent(agent),
-      sendToPane: (agent, message) => this.workspace.runInPane(agent, message),
+      sendToPane: (agent, message) => this.deliverOrQueue(agent, message),
       isAgentActive: (agent) => {
         const state = this.modeManager.getAgentState(agent);
         return !!state?.sessionActive && this.workspace.isPaneAlive(agent);
@@ -202,7 +206,7 @@ export class Supervisor {
       continueAgent: (codename, opts) => this.continueAgent(codename, opts),
       setAutonomy: (codename, autonomy) => this.setAutonomy(codename, autonomy),
       sendToAgent: (codename, message) => this.sendToAgent(codename, message),
-      typeInPane: (codename, text) => this.workspace.runInPane(codename, text),
+      typeInPane: (codename, text) => this.deliverOrQueue(codename, text),
 
       requestContext: (codename) => this.requestContext(codename),
       requestRestart: (codename, reason) => this.requestRestart(codename, reason),
@@ -1125,7 +1129,7 @@ export class Supervisor {
     ].join("\n");
 
     const envelope = `[Message from conductor]\n${message}`;
-    this.workspace.runInPane(emulator, envelope);
+    this.deliverOrQueue(emulator, envelope);
     log().info("emulator", `Notified ${emulator}: ${event} for ${agent}`);
   }
 
@@ -1159,7 +1163,7 @@ export class Supervisor {
       }
 
       const envelope = `[Broadcast from ${from}]\n${message}`;
-      this.workspace.runInPane(agent, envelope);
+      this.deliverOrQueue(agent, envelope);
       results.push(`${agent}: delivered`);
     }
 
@@ -1524,7 +1528,7 @@ export class Supervisor {
             results.push(`${agent}: skipped (not active)`);
             continue;
           }
-          this.workspace.runInPane(agent, `[Broadcast from operator]\n${message}`);
+          this.deliverOrQueue(agent, `[Broadcast from operator]\n${message}`);
           results.push(`${agent}: delivered`);
         }
         log().info("broadcast", `Operator broadcast to ${agents.length} agents`, { results });
@@ -1689,7 +1693,7 @@ export class Supervisor {
         log().info("telegram", `Directive to ${agent}: ${message.slice(0, 80)}`);
         const agentState = this.modeManager.getAgentState(agent);
         if (agentState?.sessionActive && this.workspace.isPaneAlive(agent)) {
-          this.workspace.runInPane(agent, message);
+          this.deliverOrQueue(agent, message);
           return `Message delivered to ${agent} (already running).`;
         }
         this.startAgent(agent, message);
@@ -1889,7 +1893,60 @@ export class Supervisor {
     }
 
     log().info("message", `Relaying to ${agent}'s iTerm2 pane`);
-    this.workspace.runInPane(agent, relayText);
+    this.deliverOrQueue(agent, relayText);
+  }
+
+  private deliverOrQueue(agent: string, text: string): void {
+    if (this.workspace.isInputClear(agent)) {
+      this.workspace.runInPane(agent, text);
+      return;
+    }
+
+    log().info("message", `${agent}: user is typing — queueing message (${text.length} chars)`);
+    let queue = this.messageQueue.get(agent);
+    if (!queue) {
+      queue = [];
+      this.messageQueue.set(agent, queue);
+    }
+    queue.push({ text, queuedAt: Date.now() });
+    this.ensureQueueDrain();
+  }
+
+  private ensureQueueDrain(): void {
+    if (this.messageQueueIntervalId) return;
+    this.messageQueueIntervalId = setInterval(
+      () => this.drainMessageQueues(),
+      Supervisor.MESSAGE_QUEUE_DRAIN_MS
+    );
+  }
+
+  private drainMessageQueues(): void {
+    for (const [agent, queue] of this.messageQueue) {
+      if (queue.length === 0) {
+        this.messageQueue.delete(agent);
+        continue;
+      }
+
+      const age = Date.now() - queue[0].queuedAt;
+      const forceDeliver = age > Supervisor.MESSAGE_QUEUE_MAX_AGE_MS;
+
+      if (forceDeliver || this.workspace.isInputClear(agent)) {
+        const entry = queue.shift()!;
+        if (forceDeliver) {
+          log().warn("message", `${agent}: force-delivering queued message after ${Math.round(age / 1000)}s`);
+        } else {
+          log().info("message", `${agent}: input clear — delivering queued message`);
+        }
+        this.workspace.runInPane(agent, entry.text);
+      }
+    }
+
+    // Stop polling when all queues are empty
+    const hasQueued = [...this.messageQueue.values()].some((q) => q.length > 0);
+    if (!hasQueued && this.messageQueueIntervalId) {
+      clearInterval(this.messageQueueIntervalId);
+      this.messageQueueIntervalId = null;
+    }
   }
 
   private async handleFreeText(text: string): Promise<string | null> {

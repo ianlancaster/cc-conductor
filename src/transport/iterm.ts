@@ -399,6 +399,35 @@ export class IterminalWorkspace {
     }
   }
 
+  /**
+   * Check whether the Claude Code input line (❯) is empty — i.e. the user
+   * is NOT mid-typing. Returns true when it's safe to inject a message.
+   */
+  isInputClear(agent: string): boolean {
+    const pane = this.agentPanes.get(agent);
+    if (!pane) return false;
+    try {
+      const content = this.inSession(pane.sessionId, "", "(contents as string)");
+      return this.parseInputClear(content);
+    } catch {
+      return true;
+    }
+  }
+
+  /** Shared parsing logic — exported for testing. */
+  parseInputClear(content: string): boolean {
+    const lines = content.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const idx = lines[i].indexOf("❯");
+      if (idx !== -1) {
+        const afterPrompt = lines[i].slice(idx + 1).trim();
+        return afterPrompt.length === 0;
+      }
+    }
+    // No ❯ found — likely a shell pane or non-Claude-Code session; treat as clear
+    return true;
+  }
+
   getRediscoveredAgents(): string[] {
     return Array.from(this.agentPanes.keys());
   }
